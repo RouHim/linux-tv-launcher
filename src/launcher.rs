@@ -1,0 +1,27 @@
+use std::process::{Command, Stdio};
+use tracing::{error, info};
+
+pub fn launch_app(exec: &str) {
+    info!("Launching: {}", exec);
+
+    // Split the exec string into command and args
+    // Be careful with quotes, but for now simple split
+    let parts: Vec<&str> = exec.split_whitespace().collect();
+    if parts.is_empty() {
+        return;
+    }
+
+    let cmd = parts[0];
+    let args = &parts[1..];
+
+    match Command::new(cmd)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(_) => info!("Successfully launched {}", cmd),
+        Err(e) => error!("Failed to launch {}: {}", cmd, e),
+    }
+}

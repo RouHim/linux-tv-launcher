@@ -1,0 +1,26 @@
+[package]
+name = "linux-tv-launcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+iced = { version = "0.14", features = ["tokio", "debug", "canvas", "image", "svg"] }
+tokio = { version = "1.48", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+directories = "6.0"
+freedesktop-desktop-entry = "0.8"
+freedesktop-icons = "0.4.0"
+gilrs = "0.11"
+rust-embed = "8.9"
+anyhow = "1.0"
+thiserror = "2.0"
+uuid = { version = "1.19", features = ["v4", "serde"] }
+rayon = "1.11.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
