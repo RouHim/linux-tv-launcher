@@ -16,15 +16,58 @@ pub fn gamepad_subscription() -> Subscription<Action> {
                     }
                 };
 
+                let mut axis_dir_x: i8 = 0;
+                let mut axis_dir_y: i8 = 0;
+                let deadzone = 0.6_f32;
+
                 loop {
                     while let Some(Event { event, .. }) = gilrs.next_event() {
                         let action = match event {
                             EventType::ButtonPressed(Button::South, _) => Some(Action::Select),
                             EventType::ButtonPressed(Button::East, _) => Some(Action::Back),
+                            EventType::ButtonPressed(Button::Start, _) => Some(Action::ContextMenu),
                             EventType::ButtonPressed(Button::DPadUp, _) => Some(Action::Up),
                             EventType::ButtonPressed(Button::DPadDown, _) => Some(Action::Down),
                             EventType::ButtonPressed(Button::DPadLeft, _) => Some(Action::Left),
                             EventType::ButtonPressed(Button::DPadRight, _) => Some(Action::Right),
+                            EventType::AxisChanged(gilrs::Axis::LeftStickX, value, _) => {
+                                let new_dir = if value <= -deadzone {
+                                    -1
+                                } else if value >= deadzone {
+                                    1
+                                } else {
+                                    0
+                                };
+                                if new_dir != axis_dir_x {
+                                    axis_dir_x = new_dir;
+                                    match axis_dir_x {
+                                        -1 => Some(Action::Left),
+                                        1 => Some(Action::Right),
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                }
+                            }
+                            EventType::AxisChanged(gilrs::Axis::LeftStickY, value, _) => {
+                                let new_dir = if value <= -deadzone {
+                                    1
+                                } else if value >= deadzone {
+                                    -1
+                                } else {
+                                    0
+                                };
+                                if new_dir != axis_dir_y {
+                                    axis_dir_y = new_dir;
+                                    match axis_dir_y {
+                                        -1 => Some(Action::Up),
+                                        1 => Some(Action::Down),
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                }
+                            }
                             _ => None,
                         };
 
