@@ -1,7 +1,7 @@
 use iced::alignment::Horizontal;
 use iced::keyboard::{self, key::Named};
 use iced::{
-    widget::{Column, Container, Grid, Image, Row, Scrollable, Svg, Text},
+    widget::{Column, Container, Grid, Image, Row, Scrollable, Stack, Svg, Text},
     Color, ContentFit, Element, Event, Length, Subscription, Task,
 };
 use std::path::PathBuf;
@@ -35,6 +35,8 @@ pub struct Launcher {
     sgdb_client: SteamGridDbClient,
     image_cache: Option<ImageCache>,
     scale_factor: f64,
+    context_menu_open: bool,
+    context_menu_index: usize,
 }
 
 const GAME_POSTER_WIDTH: f32 = 200.0;
@@ -74,6 +76,8 @@ impl Launcher {
                 sgdb_client,
                 image_cache,
                 scale_factor: 1.0,
+                context_menu_open: false,
+                context_menu_index: 0,
             },
             Task::batch(vec![
                 Task::perform(
@@ -179,7 +183,7 @@ impl Launcher {
             column = column.push(status);
         }
 
-        Container::new(column)
+        let main_content = Container::new(column)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x(Length::Fill)
@@ -187,6 +191,69 @@ impl Launcher {
             .style(|_theme| iced::widget::container::Style {
                 background: Some(Color::from_rgb(0.05, 0.05, 0.05).into()),
                 text_color: Some(Color::WHITE),
+                ..Default::default()
+            })
+            .into();
+
+        if self.context_menu_open {
+            Stack::new()
+                .push(main_content)
+                .push(self.render_context_menu())
+                .into()
+        } else {
+            main_content
+        }
+    }
+
+    fn render_context_menu(&self) -> Element<'_, Message> {
+        let menu_items = vec!["Launch", "Quit Launcher", "Cancel"];
+        let mut column = Column::new().spacing(10).padding(20);
+
+        for (i, item) in menu_items.iter().enumerate() {
+            let is_selected = i == self.context_menu_index;
+            let text = Text::new(*item)
+                .size(20)
+                .color(if is_selected { Color::WHITE } else { Color::from_rgb(0.7, 0.7, 0.7) })
+                .align_x(Horizontal::Center);
+            
+             let container = Container::new(text)
+                .padding(10)
+                .width(Length::Fill)
+                .style(move |_| if is_selected {
+                     iced::widget::container::Style {
+                         background: Some(Color::from_rgb(0.2, 0.4, 0.8).into()),
+                         text_color: Some(Color::WHITE),
+                         ..Default::default()
+                     }
+                } else {
+                     iced::widget::container::Style {
+                         text_color: Some(Color::from_rgb(0.7, 0.7, 0.7)),
+                         ..Default::default()
+                     }
+                });
+                
+            column = column.push(container);
+        }
+
+        let menu_box = Container::new(column)
+            .width(Length::Fixed(300.0))
+            .style(|_| iced::widget::container::Style {
+                background: Some(Color::from_rgb(0.15, 0.15, 0.15).into()),
+                border: iced::Border {
+                    color: Color::WHITE,
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            });
+
+        Container::new(menu_box)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(|_| iced::widget::container::Style {
+                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.7).into()),
                 ..Default::default()
             })
             .into()
@@ -216,6 +283,8 @@ impl Launcher {
                     keyboard::Key::Named(Named::Enter) => Some(Message::Input(Action::Select)),
                     keyboard::Key::Named(Named::Escape) => Some(Message::Input(Action::Back)),
                     keyboard::Key::Named(Named::Tab) => Some(Message::Input(Action::NextCategory)),
+                    keyboard::Key::Named(Named::F4) => Some(Message::Input(Action::Quit)),
+                    keyboard::Key::Named(Named::ContextMenu) => Some(Message::Input(Action::ContextMenu)),
                     _ => None,
                 },
                 _ => None,
@@ -226,7 +295,22 @@ impl Launcher {
     }
 
     fn handle_navigation(&mut self, action: Action) -> Task<Message> {
+        if action == Action::Quit {
+            std::process::exit(0);
+        }
+
+        if self.context_menu_open {
+            return self.handle_context_menu_navigation(action);
+        }
+
         match action {
+            Action::ContextMenu => {
+                if !self.active_items().is_empty() {
+                    self.context_menu_open = true;
+                    self.context_menu_index = 0;
+                }
+                return Task::none();
+            }
             Action::NextCategory => {
                 self.cycle_category();
                 return Task::none();
@@ -270,6 +354,43 @@ impl Launcher {
             _ => {}
         }
 
+        Task::none()
+    }
+
+    fn handle_context_menu_navigation(&mut self, action: Action) -> Task<Message> {
+        match action {
+            Action::Up => {
+                if self.context_menu_index > 0 {
+                    self.context_menu_index -= 1;
+                }
+            }
+            Action::Down => {
+                if self.context_menu_index < 2 {
+                    self.context_menu_index += 1;
+                }
+            }
+            Action::Select => {
+                match self.context_menu_index {
+                    0 => {
+                        // Launch
+                        self.context_menu_open = false;
+                        self.activate_selected();
+                    }
+                    1 => {
+                        // Quit Launcher
+                        std::process::exit(0);
+                    }
+                    _ => {
+                        // Cancel
+                        self.context_menu_open = false;
+                    }
+                }
+            }
+            Action::Back | Action::ContextMenu => {
+                self.context_menu_open = false;
+            }
+            _ => {}
+        }
         Task::none()
     }
 
