@@ -4,9 +4,11 @@ mod app;
 mod assets;
 mod game_sources;
 mod gamepad;
+mod image_cache;
 mod input;
 mod launcher;
 mod model;
+mod steamgriddb;
 mod storage;
 mod system_update;
 
@@ -23,5 +25,10 @@ fn main() -> iced::Result {
     iced::application(Launcher::new, Launcher::update, Launcher::view)
         .title(|launcher: &Launcher| launcher.title())
         .subscription(Launcher::subscription)
+        .window(iced::window::Settings {
+            decorations: false,
+            fullscreen: true,
+            ..Default::default()
+        })
         .run()
 }
