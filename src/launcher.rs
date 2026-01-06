@@ -1,14 +1,26 @@
 use std::process::{Command, Stdio};
+use thiserror::Error;
 use tracing::{error, info};
 
-pub fn launch_app(exec: &str) {
+#[derive(Debug, Error)]
+pub enum LaunchError {
+    #[error("No command specified to launch.")]
+    EmptyCommand,
+    #[error("Failed to launch `{command}`: {source}")]
+    LaunchFailed {
+        command: String,
+        source: std::io::Error,
+    },
+}
+
+pub fn launch_app(exec: &str) -> Result<(), LaunchError> {
     info!("Launching: {}", exec);
 
     // Split the exec string into command and args
     // Be careful with quotes, but for now simple split
     let parts: Vec<&str> = exec.split_whitespace().collect();
     if parts.is_empty() {
-        return;
+        return Err(LaunchError::EmptyCommand);
     }
 
     let cmd = parts[0];
@@ -21,7 +33,16 @@ pub fn launch_app(exec: &str) {
         .stderr(Stdio::null())
         .spawn()
     {
-        Ok(_) => info!("Successfully launched {}", cmd),
-        Err(e) => error!("Failed to launch {}: {}", cmd, e),
+        Ok(_) => {
+            info!("Successfully launched {}", cmd);
+            Ok(())
+        }
+        Err(e) => {
+            error!("Failed to launch {}: {}", cmd, e);
+            Err(LaunchError::LaunchFailed {
+                command: cmd.to_string(),
+                source: e,
+            })
+        }
     }
 }

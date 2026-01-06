@@ -25,7 +25,9 @@ pub fn gamepad_subscription() -> Subscription<Action> {
                         let action = match event {
                             EventType::ButtonPressed(Button::South, _) => Some(Action::Select),
                             EventType::ButtonPressed(Button::East, _) => Some(Action::Back),
-                            EventType::ButtonPressed(Button::Start, _) => Some(Action::ContextMenu),
+                            EventType::ButtonPressed(Button::Start, _) => {
+                                Some(Action::NextCategory)
+                            }
                             EventType::ButtonPressed(Button::DPadUp, _) => Some(Action::Up),
                             EventType::ButtonPressed(Button::DPadDown, _) => Some(Action::Down),
                             EventType::ButtonPressed(Button::DPadLeft, _) => Some(Action::Left),

@@ -6,6 +6,5 @@ pub enum Action {
     Right,
     Select,
     Back,
-    Remove,
-    ContextMenu,
+    NextCategory,
 }

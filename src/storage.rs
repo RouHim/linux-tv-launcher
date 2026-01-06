@@ -16,6 +16,10 @@ fn get_config_path() -> Result<PathBuf> {
     Ok(config_dir.join("config.json"))
 }
 
+pub fn config_path() -> Result<PathBuf> {
+    get_config_path()
+}
+
 pub fn load_config() -> Result<Vec<AppEntry>> {
     let path = get_config_path()?;
     if !path.exists() {
@@ -27,13 +31,6 @@ pub fn load_config() -> Result<Vec<AppEntry>> {
         serde_json::from_str(&content).context("Failed to parse config file")?;
 
     Ok(apps)
-}
-
-pub fn save_config(apps: &[AppEntry]) -> Result<()> {
-    let path = get_config_path()?;
-    let content = serde_json::to_string_pretty(apps).context("Failed to serialize config")?;
-    fs::write(&path, content).context("Failed to write config file")?;
-    Ok(())
 }
 
 #[cfg(test)]
