@@ -703,7 +703,7 @@ impl Launcher {
         image_width: f32,
         image_height: f32,
         item_width: f32,
-        item_height: f32,
+        _item_height: f32,
     ) -> Element<'_, Message> {
         let icon_widget: Element<Message> = if let Some(icon_path) = &item.icon {
             // Check for embedded assets first
@@ -751,23 +751,8 @@ impl Launcher {
                 .into()
         };
 
-        // Wrap icon in a container for the border
         let icon_container = Container::new(icon_widget)
-            .padding(6)
-            .style(move |_theme| {
-                if is_selected {
-                    iced::widget::container::Style {
-                        border: iced::Border {
-                            color: Color::from_rgb(0.2, 0.4, 0.8),
-                            width: 5.0,
-                            radius: 4.0.into(),
-                        },
-                        ..Default::default()
-                    }
-                } else {
-                    iced::widget::container::Style::default()
-                }
-            });
+            .padding(6);
 
         let text = Text::new(item.name.clone());
 
@@ -785,9 +770,24 @@ impl Launcher {
 
         Container::new(content)
             .width(Length::Fixed(item_width))
-            .height(Length::Fixed(item_height))
+            .height(Length::Shrink)
+            .padding(6)
             .align_x(Horizontal::Center)
             .align_y(iced::alignment::Vertical::Center)
+            .style(move |_theme| {
+                if is_selected {
+                    iced::widget::container::Style {
+                        border: iced::Border {
+                            color: Color::from_rgb(0.2, 0.4, 0.8),
+                            width: 1.0,
+                            radius: 4.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                } else {
+                    iced::widget::container::Style::default()
+                }
+            })
             .into()
     }
 
