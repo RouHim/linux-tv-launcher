@@ -1,9 +1,10 @@
 use iced::alignment::Horizontal;
-use iced::keyboard::{self, key::Named};
+use iced::keyboard::{self, key::Named, Key};
 use iced::{
     widget::{Column, Container, Grid, Image, Row, Scrollable, Stack, Svg, Text},
     Color, ContentFit, Element, Event, Length, Subscription, Task,
 };
+use rayon::prelude::*;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -15,7 +16,7 @@ use crate::input::Action;
 use crate::launcher::launch_app;
 use crate::model::{AppEntry, Category, LauncherAction, LauncherItem};
 use crate::steamgriddb::SteamGridDbClient;
-use crate::storage::{config_path, load_config};
+use crate::storage::{config_path, load_config, save_config};
 use crate::system_update::run_update;
 use tracing::{error, info, warn};
 
@@ -42,6 +43,23 @@ pub struct Launcher {
 const GAME_POSTER_WIDTH: f32 = 200.0;
 const GAME_POSTER_HEIGHT: f32 = 300.0;
 
+// App/System icon dimensions
+const ICON_SIZE: f32 = 128.0;
+const ICON_ITEM_WIDTH: f32 = 150.0;
+const ICON_ITEM_HEIGHT: f32 = 180.0;
+
+// Text truncation limit
+const MAX_LABEL_CHARS: usize = 18;
+
+fn truncate_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(max_chars.saturating_sub(2)).collect();
+        format!("{}...", truncated.trim_end())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     AppsLoaded(Result<Vec<AppEntry>, String>),
@@ -56,7 +74,7 @@ impl Launcher {
     pub fn new() -> (Self, Task<Message>) {
         let default_icon = get_default_icon().map(iced::widget::svg::Handle::from_memory);
         let config_path = config_path().ok().map(|path| path.display().to_string());
-        
+
         let sgdb_client = SteamGridDbClient::new("276bca336e815a4e2dd2250ea674eb31".to_string());
         let image_cache = ImageCache::new().ok();
 
@@ -128,34 +146,40 @@ impl Launcher {
                 if let Some(cache) = &self.image_cache {
                     let target_width = (GAME_POSTER_WIDTH as f64 * self.scale_factor) as u32;
                     let target_height = (GAME_POSTER_HEIGHT as f64 * self.scale_factor) as u32;
+                    let client_template = self.sgdb_client.clone();
+                    let cache_dir_template = cache.cache_dir.clone();
 
-                    for game in &self.games {
-                        let game_id = game.id;
-                        let game_name = game.name.clone();
-                        let client = self.sgdb_client.clone();
-                        let cache_dir = cache.cache_dir.clone();
+                    tasks = self
+                        .games
+                        .par_iter()
+                        .map(|game| {
+                            let game_id = game.id;
+                            let game_name = game.name.clone();
+                            let client = client_template.clone();
+                            let cache_dir = cache_dir_template.clone();
 
-                        tasks.push(Task::perform(
-                            async move {
-                                tokio::task::spawn_blocking(move || {
-                                    fetch_game_image(
-                                        client,
-                                        cache_dir,
-                                        game_id,
-                                        game_name,
-                                        target_width,
-                                        target_height,
-                                    )
-                                })
-                                .await
-                                .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-                            },
-                            |res| match res {
-                                Ok(Some((id, path))) => Message::ImageFetched(id, path),
-                                _ => Message::None,
-                            },
-                        ));
-                    }
+                            Task::perform(
+                                async move {
+                                    tokio::task::spawn_blocking(move || {
+                                        fetch_game_image(
+                                            client,
+                                            cache_dir,
+                                            game_id,
+                                            game_name,
+                                            target_width,
+                                            target_height,
+                                        )
+                                    })
+                                    .await
+                                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+                                },
+                                |res| match res {
+                                    Ok(Some((id, path))) => Message::ImageFetched(id, path),
+                                    _ => Message::None,
+                                },
+                            )
+                        })
+                        .collect();
                 }
                 Task::batch(tasks)
             }
@@ -206,32 +230,41 @@ impl Launcher {
     }
 
     fn render_context_menu(&self) -> Element<'_, Message> {
-        let menu_items = vec!["Launch", "Quit Launcher", "Cancel"];
+        let menu_items: Vec<&str> = match self.category {
+            Category::Apps => vec!["Launch", "Remove Entry", "Quit Launcher", "Close"],
+            Category::Games | Category::System => vec!["Launch", "Quit Launcher", "Close"],
+        };
         let mut column = Column::new().spacing(10).padding(20);
 
         for (i, item) in menu_items.iter().enumerate() {
             let is_selected = i == self.context_menu_index;
             let text = Text::new(*item)
                 .size(20)
-                .color(if is_selected { Color::WHITE } else { Color::from_rgb(0.7, 0.7, 0.7) })
+                .color(if is_selected {
+                    Color::WHITE
+                } else {
+                    Color::from_rgb(0.7, 0.7, 0.7)
+                })
                 .align_x(Horizontal::Center);
-            
-             let container = Container::new(text)
+
+            let container = Container::new(text)
                 .padding(10)
                 .width(Length::Fill)
-                .style(move |_| if is_selected {
-                     iced::widget::container::Style {
-                         background: Some(Color::from_rgb(0.2, 0.4, 0.8).into()),
-                         text_color: Some(Color::WHITE),
-                         ..Default::default()
-                     }
-                } else {
-                     iced::widget::container::Style {
-                         text_color: Some(Color::from_rgb(0.7, 0.7, 0.7)),
-                         ..Default::default()
-                     }
+                .style(move |_| {
+                    if is_selected {
+                        iced::widget::container::Style {
+                            background: Some(Color::from_rgb(0.2, 0.4, 0.8).into()),
+                            text_color: Some(Color::WHITE),
+                            ..Default::default()
+                        }
+                    } else {
+                        iced::widget::container::Style {
+                            text_color: Some(Color::from_rgb(0.7, 0.7, 0.7)),
+                            ..Default::default()
+                        }
+                    }
                 });
-                
+
             column = column.push(container);
         }
 
@@ -275,16 +308,16 @@ impl Launcher {
             }
 
             match event {
-                Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => match key {
-                    keyboard::Key::Named(Named::ArrowUp) => Some(Message::Input(Action::Up)),
-                    keyboard::Key::Named(Named::ArrowDown) => Some(Message::Input(Action::Down)),
-                    keyboard::Key::Named(Named::ArrowLeft) => Some(Message::Input(Action::Left)),
-                    keyboard::Key::Named(Named::ArrowRight) => Some(Message::Input(Action::Right)),
-                    keyboard::Key::Named(Named::Enter) => Some(Message::Input(Action::Select)),
-                    keyboard::Key::Named(Named::Escape) => Some(Message::Input(Action::Back)),
-                    keyboard::Key::Named(Named::Tab) => Some(Message::Input(Action::NextCategory)),
-                    keyboard::Key::Named(Named::F4) => Some(Message::Input(Action::Quit)),
-                    keyboard::Key::Named(Named::ContextMenu) => Some(Message::Input(Action::ContextMenu)),
+                Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => match key.as_ref() {
+                    Key::Named(Named::ArrowUp) => Some(Message::Input(Action::Up)),
+                    Key::Named(Named::ArrowDown) => Some(Message::Input(Action::Down)),
+                    Key::Named(Named::ArrowLeft) => Some(Message::Input(Action::Left)),
+                    Key::Named(Named::ArrowRight) => Some(Message::Input(Action::Right)),
+                    Key::Named(Named::Enter) => Some(Message::Input(Action::Select)),
+                    Key::Named(Named::Escape) => Some(Message::Input(Action::Back)),
+                    Key::Named(Named::Tab) => Some(Message::Input(Action::NextCategory)),
+                    Key::Named(Named::F4) => Some(Message::Input(Action::Quit)),
+                    Key::Character("c") => Some(Message::Input(Action::ContextMenu)),
                     _ => None,
                 },
                 _ => None,
@@ -358,6 +391,11 @@ impl Launcher {
     }
 
     fn handle_context_menu_navigation(&mut self, action: Action) -> Task<Message> {
+        let max_index = match self.category {
+            Category::Apps => 3,
+            Category::Games | Category::System => 2,
+        };
+
         match action {
             Action::Up => {
                 if self.context_menu_index > 0 {
@@ -365,24 +403,57 @@ impl Launcher {
                 }
             }
             Action::Down => {
-                if self.context_menu_index < 2 {
+                if self.context_menu_index < max_index {
                     self.context_menu_index += 1;
                 }
             }
             Action::Select => {
-                match self.context_menu_index {
-                    0 => {
+                match (self.category, self.context_menu_index) {
+                    (Category::Apps, 0) | (Category::Games, 0) | (Category::System, 0) => {
                         // Launch
                         self.context_menu_open = false;
                         self.activate_selected();
                     }
-                    1 => {
-                        // Quit Launcher
-                        std::process::exit(0);
-                    }
-                    _ => {
-                        // Cancel
+                    (Category::Apps, 1) => {
+                        // Remove Entry
                         self.context_menu_open = false;
+                        if self.selected_index < self.apps.len() {
+                            let removed = self.apps.remove(self.selected_index);
+                            self.clamp_selected_index();
+
+                            match save_config(
+                                &self
+                                    .apps
+                                    .iter()
+                                    .map(|item| AppEntry {
+                                        id: item.id,
+                                        name: item.name.clone(),
+                                        icon: item.icon.clone(),
+                                        exec: match &item.action {
+                                            LauncherAction::Launch { exec } => exec.clone(),
+                                            LauncherAction::SystemUpdate => unreachable!(),
+                                        },
+                                    })
+                                    .collect::<Vec<_>>(),
+                            ) {
+                                Ok(_) => info!("Removed app: {}", removed.name),
+                                Err(err) => warn!("Failed to save config after removal: {}", err),
+                            }
+                        }
+                    }
+                    (_, _) => {
+                        let quit_index = if self.category == Category::Apps {
+                            2
+                        } else {
+                            1
+                        };
+                        if self.context_menu_index == quit_index {
+                            // Quit Launcher
+                            std::process::exit(0);
+                        } else {
+                            // Close
+                            self.context_menu_open = false;
+                        }
                     }
                 }
             }
@@ -539,46 +610,97 @@ impl Launcher {
         // Determine dimensions based on category
         let (item_width, item_height, image_width, image_height) = match self.category {
             Category::Games => (
-                GAME_POSTER_WIDTH + 20.0,
-                GAME_POSTER_HEIGHT + 40.0,
+                GAME_POSTER_WIDTH + 10.0,
+                GAME_POSTER_HEIGHT + 30.0,
                 GAME_POSTER_WIDTH,
                 GAME_POSTER_HEIGHT,
             ), // Poster style
-            _ => (150.0, 150.0, 64.0, 64.0), // Icon style
+            _ => (ICON_ITEM_WIDTH, ICON_ITEM_HEIGHT, ICON_SIZE, ICON_SIZE), // Icon style
         };
 
-        let mut grid = Grid::new()
-            .columns(self.cols)
-            .spacing(20);
+        let mut grid = Grid::new().columns(self.cols).spacing(5);
 
         for (i, item) in items.iter().enumerate() {
             let is_selected = i == self.selected_index;
 
             let icon_widget: Element<Message> = if let Some(icon_path) = &item.icon {
                 if icon_path.ends_with(".svg") {
-                    Svg::from_path(icon_path)
+                    let svg = Svg::from_path(icon_path)
+                        .width(Length::Fixed(image_width))
+                        .height(Length::Fixed(image_height));
+
+                    Container::new(svg)
                         .width(Length::Fixed(image_width))
                         .height(Length::Fixed(image_height))
+                        .style(move |_theme| {
+                            if is_selected {
+                                iced::widget::container::Style {
+                                    border: iced::Border {
+                                        color: Color::from_rgb(0.2, 0.4, 0.8),
+                                        width: 5.0,
+                                        radius: 4.0.into(),
+                                    },
+                                    ..Default::default()
+                                }
+                            } else {
+                                iced::widget::container::Style::default()
+                            }
+                        })
                         .into()
                 } else {
-                    Image::new(icon_path)
+                    let image = Image::new(icon_path)
                         .width(Length::Fixed(image_width))
                         .height(Length::Fixed(image_height))
-                        .content_fit(ContentFit::Cover)
+                        .content_fit(ContentFit::Cover);
+
+                    Container::new(image)
+                        .width(Length::Fixed(image_width))
+                        .height(Length::Fixed(image_height))
+                        .style(move |_theme| {
+                            if is_selected {
+                                iced::widget::container::Style {
+                                    border: iced::Border {
+                                        color: Color::from_rgb(0.2, 0.4, 0.8),
+                                        width: 5.0,
+                                        radius: 4.0.into(),
+                                    },
+                                    ..Default::default()
+                                }
+                            } else {
+                                iced::widget::container::Style::default()
+                            }
+                        })
                         .into()
                 }
             } else if let Some(handle) = self.default_icon_handle.clone() {
-                Svg::new(handle)
+                let svg = Svg::new(handle)
+                    .width(Length::Fixed(image_width))
+                    .height(Length::Fixed(image_height));
+
+                Container::new(svg)
                     .width(Length::Fixed(image_width))
                     .height(Length::Fixed(image_height))
+                    .style(move |_theme| {
+                        if is_selected {
+                            iced::widget::container::Style {
+                                border: iced::Border {
+                                    color: Color::from_rgb(0.2, 0.4, 0.8),
+                                    width: 5.0,
+                                    radius: 4.0.into(),
+                                },
+                                ..Default::default()
+                            }
+                        } else {
+                            iced::widget::container::Style::default()
+                        }
+                    })
                     .into()
             } else {
                 Text::new("ICON").color(Color::WHITE).into()
             };
 
             let content = if matches!(self.category, Category::Games) {
-                // For games, just show the poster image (maybe text overlay if selected?)
-                // Or standard layout: Image + Text below
+                // For games, show poster image + text below
                 Column::new()
                     .push(icon_widget)
                     .push(
@@ -589,39 +711,26 @@ impl Launcher {
                             .size(14),
                     )
                     .align_x(iced::Alignment::Center)
-                    .spacing(10)
+                    .spacing(8)
             } else {
-                    Column::new()
-                .push(icon_widget)
-                .push(
-                    Text::new(item.name.clone())
-                        .align_x(Horizontal::Center)
-                        .color(Color::WHITE),
-                )
-                .align_x(iced::Alignment::Center)
-                .spacing(10)
+                Column::new()
+                    .push(icon_widget)
+                    .push(
+                        Text::new(truncate_text(&item.name, MAX_LABEL_CHARS))
+                            .width(Length::Fixed(ICON_ITEM_WIDTH - 16.0))
+                            .align_x(Horizontal::Center)
+                            .color(Color::WHITE)
+                            .size(14),
+                    )
+                    .align_x(iced::Alignment::Center)
+                    .spacing(8)
             };
 
             let container = Container::new(content)
                 .width(Length::Fixed(item_width))
                 .height(Length::Fixed(item_height))
                 .center_x(Length::Fixed(item_width))
-                .center_y(Length::Fixed(item_height))
-                .style(move |_theme| {
-                    if is_selected {
-                        iced::widget::container::Style {
-                            background: Some(Color::from_rgb(0.2, 0.4, 0.8).into()),
-                            text_color: Some(Color::WHITE),
-                            ..Default::default()
-                        }
-                    } else {
-                        iced::widget::container::Style {
-                            background: Some(Color::from_rgb(0.1, 0.1, 0.1).into()),
-                            text_color: Some(Color::WHITE),
-                            ..Default::default()
-                        }
-                    }
-                });
+                .center_y(Length::Fixed(item_height));
 
             grid = grid.push(container);
         }

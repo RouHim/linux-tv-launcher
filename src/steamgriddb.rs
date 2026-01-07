@@ -67,7 +67,7 @@ impl SteamGridDbClient {
             .agent
             .get(&url)
             .query("dimensions", "600x900")
-             // removed styles filter to get more results
+            // removed styles filter to get more results
             .set("Authorization", &format!("Bearer {}", self.api_key))
             .call()
             .context("Failed to fetch grids")?

@@ -24,7 +24,13 @@ impl ImageCache {
 
     fn sanitize_name(&self, name: &str) -> String {
         name.chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect()
     }
 
@@ -40,11 +46,14 @@ impl ImageCache {
         None
     }
 
-    pub fn save_image(&self, game_name: &str, url: &str, width: u32, height: u32) -> Result<PathBuf> {
-        let extension = url
-            .split('.')
-            .next_back()
-            .unwrap_or("png");
+    pub fn save_image(
+        &self,
+        game_name: &str,
+        url: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<PathBuf> {
+        let extension = url.split('.').next_back().unwrap_or("png");
 
         let path = self.get_image_path(game_name, extension);
         if path.exists() {
@@ -61,7 +70,9 @@ impl ImageCache {
         // Resize to requested dimensions, maintaining aspect ratio.
         let resized = img.resize(width, height, image::imageops::FilterType::Triangle);
 
-        resized.save(&path).context("Failed to save resized image")?;
+        resized
+            .save(&path)
+            .context("Failed to save resized image")?;
 
         Ok(path)
     }

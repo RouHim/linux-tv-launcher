@@ -7,9 +7,11 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
 
 pub fn scan_games() -> Vec<AppEntry> {
+    let (steam_games, heroic_games) = rayon::join(scan_steam_games, scan_heroic_games);
+
     let mut games = Vec::new();
-    games.extend(scan_steam_games());
-    games.extend(scan_heroic_games());
+    games.extend(steam_games);
+    games.extend(heroic_games);
 
     games.sort_by(|a, b| a.name.cmp(&b.name));
     games.dedup_by(|a, b| a.name == b.name && a.exec == b.exec);
@@ -102,10 +104,10 @@ fn scan_steam_games() -> Vec<AppEntry> {
 
 fn is_ignored_app(name: &str, id: &str) -> bool {
     let name_lower = name.to_lowercase();
-    
+
     // Exact ID matches for common Steam runtimes/tools
     match id {
-        "228980" => return true, // Steamworks Common Redist
+        "228980" => return true,  // Steamworks Common Redist
         "1391110" => return true, // Steam Linux Runtime - Soldier
         "1628350" => return true, // Steam Linux Runtime - Sniper
         "1070560" => return true, // Steam Linux Runtime
@@ -115,9 +117,9 @@ fn is_ignored_app(name: &str, id: &str) -> bool {
     }
 
     // Keyword matching
-    if name_lower.contains("proton") 
-        || name_lower.contains("steam linux runtime") 
-        || name_lower.contains("steamworks common redist") 
+    if name_lower.contains("proton")
+        || name_lower.contains("steam linux runtime")
+        || name_lower.contains("steamworks common redist")
         || name_lower.contains("galaxy common redist")
         || name_lower == "dxvk"
         || name_lower == "vkd3d"
@@ -282,8 +284,11 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                     if path.extension().and_then(|e| e.to_str()) != Some("json") {
                         continue;
                     }
-                    
-                    let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+
+                    let file_stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or_default();
                     if file_stem.is_empty() {
                         continue;
                     }
@@ -295,21 +300,23 @@ fn scan_heroic_games() -> Vec<AppEntry> {
 
                     // Assume "heroic" as store for generic GameConfig files unless specified otherwise
                     // Pass file_stem as fallback app_name
-                    if let Some(game) = parse_heroic_game_config(&contents, "heroic", Some(file_stem)) {
-                         if is_ignored_app(&game.title, &game.app_name) {
-                             continue;
-                         }
-                         if seen_app_names.contains(&game.app_name) {
-                             continue;
-                         }
-                         seen_app_names.insert(game.app_name.clone());
+                    if let Some(game) =
+                        parse_heroic_game_config(&contents, "heroic", Some(file_stem))
+                    {
+                        if is_ignored_app(&game.title, &game.app_name) {
+                            continue;
+                        }
+                        if seen_app_names.contains(&game.app_name) {
+                            continue;
+                        }
+                        seen_app_names.insert(game.app_name.clone());
 
-                         let exec = heroic_exec(&game.store, &game.app_name);
-                         let entry = AppEntry::new(game.title, exec, None);
-                         let key = format!("{}:{}", entry.name, entry.exec);
-                         if seen.insert(key) {
-                             games.push(entry);
-                         }
+                        let exec = heroic_exec(&game.store, &game.app_name);
+                        let entry = AppEntry::new(game.title, exec, None);
+                        let key = format!("{}:{}", entry.name, entry.exec);
+                        if seen.insert(key) {
+                            games.push(entry);
+                        }
                     }
                 }
             }
@@ -460,7 +467,11 @@ fn parse_heroic_install_info_json(contents: &str, store_hint: &str) -> Vec<Heroi
     games
 }
 
-fn parse_heroic_game_config(contents: &str, store_hint: &str, app_name_hint: Option<&str>) -> Option<HeroicGame> {
+fn parse_heroic_game_config(
+    contents: &str,
+    store_hint: &str,
+    app_name_hint: Option<&str>,
+) -> Option<HeroicGame> {
     let value: Value = match serde_json::from_str(contents) {
         Ok(value) => value,
         Err(err) => {
@@ -470,9 +481,9 @@ fn parse_heroic_game_config(contents: &str, store_hint: &str, app_name_hint: Opt
     };
 
     if let Value::Object(map) = value {
-         // For individual config files, we don't strictly require "installed": true,
-         // but if it says "false", we respect it.
-         heroic_game_from_object(app_name_hint, &map, store_hint, false)
+        // For individual config files, we don't strictly require "installed": true,
+        // but if it says "false", we respect it.
+        heroic_game_from_object(app_name_hint, &map, store_hint, false)
     } else {
         None
     }
@@ -838,11 +849,12 @@ mod tests {
         }
         "#;
 
-        let game = parse_heroic_game_config(contents, "heroic", Some("sideload-123")).expect("Parsed game config with hint");
+        let game = parse_heroic_game_config(contents, "heroic", Some("sideload-123"))
+            .expect("Parsed game config with hint");
         assert_eq!(game.app_name, "sideload-123");
         assert_eq!(game.title, "Sideloaded");
     }
-    
+
     #[test]
     fn test_is_ignored_app() {
         assert!(is_ignored_app("Proton Experimental", "1493710"));
@@ -872,10 +884,7 @@ mod tests {
 
     #[test]
     fn test_heroic_exec_handles_sideload_runners() {
-        assert_eq!(
-            heroic_exec("wine", "App1"),
-            "xdg-open heroic://launch/App1"
-        );
+        assert_eq!(heroic_exec("wine", "App1"), "xdg-open heroic://launch/App1");
         assert_eq!(
             heroic_exec("native", "App2"),
             "xdg-open heroic://launch/App2"

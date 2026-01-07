@@ -33,6 +33,13 @@ pub fn load_config() -> Result<Vec<AppEntry>> {
     Ok(apps)
 }
 
+pub fn save_config(apps: &[AppEntry]) -> Result<()> {
+    let path = get_config_path()?;
+    let content = serde_json::to_string_pretty(apps).context("Failed to serialize config")?;
+    fs::write(&path, content).context("Failed to write config file")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::model::AppEntry;
