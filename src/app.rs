@@ -72,7 +72,12 @@ impl Launcher {
         let mut launcher = Self {
             apps: Vec::new(),
             games: Vec::new(),
-            system_items: vec![LauncherItem::system_update()],
+            system_items: vec![
+                LauncherItem::shutdown(),
+                LauncherItem::suspend(),
+                LauncherItem::system_update(),
+                LauncherItem::exit(),
+            ],
             selected_index: 0,
             category: Category::Apps,
             cols: 6,
@@ -435,7 +440,10 @@ impl Launcher {
                                         icon: item.icon.clone(),
                                         exec: match &item.action {
                                             LauncherAction::Launch { exec } => exec.clone(),
-                                            LauncherAction::SystemUpdate => unreachable!(),
+                                            LauncherAction::SystemUpdate
+                                            | LauncherAction::Shutdown
+                                            | LauncherAction::Suspend
+                                            | LauncherAction::Exit => unreachable!(),
                                         },
                                     })
                                     .collect::<Vec<_>>(),
@@ -495,6 +503,25 @@ impl Launcher {
                     self.status_message = Some(err.to_string());
                 }
             },
+            LauncherAction::Shutdown => {
+                if let Err(e) = std::process::Command::new("systemctl")
+                    .arg("poweroff")
+                    .spawn()
+                {
+                    self.status_message = Some(format!("Failed to shutdown: {}", e));
+                }
+            }
+            LauncherAction::Suspend => {
+                if let Err(e) = std::process::Command::new("systemctl")
+                    .arg("suspend")
+                    .spawn()
+                {
+                    self.status_message = Some(format!("Failed to suspend: {}", e));
+                }
+            }
+            LauncherAction::Exit => {
+                std::process::exit(0);
+            }
         }
     }
 
@@ -679,7 +706,26 @@ impl Launcher {
         item_height: f32,
     ) -> Element<'_, Message> {
         let icon_widget: Element<Message> = if let Some(icon_path) = &item.icon {
-            if icon_path.ends_with(".svg") {
+            // Check for embedded assets first
+            let embedded_handle = match icon_path.as_str() {
+                "assets/shutdown.svg" => {
+                    crate::assets::get_shutdown_icon().map(iced::widget::svg::Handle::from_memory)
+                }
+                "assets/suspend.svg" => {
+                    crate::assets::get_suspend_icon().map(iced::widget::svg::Handle::from_memory)
+                }
+                "assets/exit.svg" => {
+                    crate::assets::get_exit_icon().map(iced::widget::svg::Handle::from_memory)
+                }
+                _ => None,
+            };
+
+            if let Some(handle) = embedded_handle {
+                Svg::new(handle)
+                    .width(Length::Fixed(image_width))
+                    .height(Length::Fixed(image_height))
+                    .into()
+            } else if icon_path.ends_with(".svg") {
                 Svg::from_path(icon_path)
                     .width(Length::Fixed(image_width))
                     .height(Length::Fixed(image_height))

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="128" height="128">
+  <path d="M9 3v2h6v14H9v2h8V3H9zm-1 9l4 4V8l-4 4zm-6 0l8-8v16l-8-8z" fill="none" stroke="white" stroke-width="0"/>
+  <!-- Door with arrow out -->
+  <path d="M5 5h6v2H7v10h4v2H5V5zm10 10l5-5-5-5v3H9v4h6v3z" />
+</svg>

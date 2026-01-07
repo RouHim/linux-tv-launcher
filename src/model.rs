@@ -32,6 +32,9 @@ impl Category {
 pub enum LauncherAction {
     Launch { exec: String },
     SystemUpdate,
+    Shutdown,
+    Suspend,
+    Exit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,8 +59,35 @@ impl LauncherItem {
         Self {
             id: Uuid::new_v4(),
             name: "Update System".to_string(),
-            icon: None,
+            icon: None, // Will use default/fallback or we can specify specific one later
             action: LauncherAction::SystemUpdate,
+        }
+    }
+
+    pub fn shutdown() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: "Shutdown".to_string(),
+            icon: Some("assets/shutdown.svg".to_string()),
+            action: LauncherAction::Shutdown,
+        }
+    }
+
+    pub fn suspend() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: "Suspend".to_string(),
+            icon: Some("assets/suspend.svg".to_string()),
+            action: LauncherAction::Suspend,
+        }
+    }
+
+    pub fn exit() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: "Exit Launcher".to_string(),
+            icon: Some("assets/exit.svg".to_string()),
+            action: LauncherAction::Exit,
         }
     }
 }
@@ -106,7 +136,7 @@ mod tests {
         assert_eq!(item.name, "Game");
         match item.action {
             LauncherAction::Launch { .. } => {}
-            LauncherAction::SystemUpdate => panic!("expected launch action"),
+            _ => panic!("expected launch action"),
         }
     }
 }
