@@ -36,6 +36,7 @@ pub struct Launcher {
     sgdb_client: SteamGridDbClient,
     image_cache: Option<ImageCache>,
     scale_factor: f64,
+    window_width: f32,
     context_menu_open: bool,
     context_menu_index: usize,
 }
@@ -45,20 +46,8 @@ const GAME_POSTER_HEIGHT: f32 = 300.0;
 
 // App/System icon dimensions
 const ICON_SIZE: f32 = 128.0;
-const ICON_ITEM_WIDTH: f32 = 150.0;
-const ICON_ITEM_HEIGHT: f32 = 180.0;
-
-// Text truncation limit
-const MAX_LABEL_CHARS: usize = 18;
-
-fn truncate_text(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        text.to_string()
-    } else {
-        let truncated: String = text.chars().take(max_chars.saturating_sub(2)).collect();
-        format!("{}...", truncated.trim_end())
-    }
-}
+const ICON_ITEM_WIDTH: f32 = 150.0; // Increased to allow padding
+const ICON_ITEM_HEIGHT: f32 = 280.0; // Increased to allow text wrapping
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -67,10 +56,12 @@ pub enum Message {
     ImageFetched(Uuid, PathBuf),
     Input(Action),
     ScaleFactorChanged(f64),
+    WindowResized(f32, f32),
     None,
 }
 
 impl Launcher {
+// ... existing new, title, update methods ...
     pub fn new() -> (Self, Task<Message>) {
         let default_icon = get_default_icon().map(iced::widget::svg::Handle::from_memory);
         let config_path = config_path().ok().map(|path| path.display().to_string());
@@ -78,25 +69,29 @@ impl Launcher {
         let sgdb_client = SteamGridDbClient::new("276bca336e815a4e2dd2250ea674eb31".to_string());
         let image_cache = ImageCache::new().ok();
 
+        let mut launcher = Self {
+            apps: Vec::new(),
+            games: Vec::new(),
+            system_items: vec![LauncherItem::system_update()],
+            selected_index: 0,
+            category: Category::Apps,
+            cols: 6,
+            default_icon_handle: default_icon,
+            status_message: None,
+            config_path,
+            apps_loaded: false,
+            games_loaded: false,
+            sgdb_client,
+            image_cache,
+            scale_factor: 1.0,
+            window_width: 1280.0,
+            context_menu_open: false,
+            context_menu_index: 0,
+        };
+        launcher.update_columns();
+
         (
-            Self {
-                apps: Vec::new(),
-                games: Vec::new(),
-                system_items: vec![LauncherItem::system_update()],
-                selected_index: 0,
-                category: Category::Apps,
-                cols: 4,
-                default_icon_handle: default_icon,
-                status_message: None,
-                config_path,
-                apps_loaded: false,
-                games_loaded: false,
-                sgdb_client,
-                image_cache,
-                scale_factor: 1.0,
-                context_menu_open: false,
-                context_menu_index: 0,
-            },
+            launcher,
             Task::batch(vec![
                 Task::perform(
                     async { load_config().map_err(|err| err.to_string()) },
@@ -192,6 +187,11 @@ impl Launcher {
             Message::Input(action) => self.handle_navigation(action),
             Message::ScaleFactorChanged(scale) => {
                 self.scale_factor = scale;
+                Task::none()
+            }
+            Message::WindowResized(width, _height) => {
+                self.window_width = width;
+                self.update_columns();
                 Task::none()
             }
             Message::None => Task::none(),
@@ -291,6 +291,7 @@ impl Launcher {
             })
             .into()
     }
+// ... subscription, handle_navigation, handle_context_menu_navigation ...
 
     pub fn subscription(&self) -> Subscription<Message> {
         let gamepad = gamepad_subscription().map(Message::Input);
@@ -298,6 +299,9 @@ impl Launcher {
         let window_events = iced::event::listen_with(|event, _status, _window| match event {
             Event::Window(iced::window::Event::Rescaled(scale_factor)) => {
                 Some(Message::ScaleFactorChanged(scale_factor as f64))
+            }
+            Event::Window(iced::window::Event::Resized(size)) => {
+                Some(Message::WindowResized(size.width, size.height))
             }
             _ => None,
         });
@@ -498,6 +502,28 @@ impl Launcher {
         self.category = self.category.next();
         self.selected_index = 0;
         self.status_message = None;
+        self.update_columns();
+    }
+
+    fn update_columns(&mut self) {
+        let (item_width, _item_height, _image_width, _image_height) = match self.category {
+            Category::Games => (
+                GAME_POSTER_WIDTH + 16.0, // Extra width for padding/border
+                GAME_POSTER_HEIGHT + 140.0, // Increased for text wrapping
+                GAME_POSTER_WIDTH,
+                GAME_POSTER_HEIGHT,
+            ),
+            _ => (ICON_ITEM_WIDTH, ICON_ITEM_HEIGHT, ICON_SIZE, ICON_SIZE),
+        };
+
+        // Estimate available width: Window Width - (Spacing * 2 for outer margins + spacing)
+        // Grid spacing is 10.
+        // Assuming typical margin/padding around the grid.
+        let available_width = self.window_width - 40.0;
+        let item_space = item_width + 10.0; // Item width + grid spacing
+
+        let cols = (available_width / item_space).floor() as usize;
+        self.cols = cols.max(1);
     }
 
     fn clamp_selected_index(&mut self) {
@@ -607,137 +633,115 @@ impl Launcher {
     }
 
     fn render_grid(&self, items: &[LauncherItem]) -> Element<'_, Message> {
-        // Determine dimensions based on category
+        // Determine dimensions based on category.
+        // For Games: tight fit around poster.
+        // For Apps: tight fit around icon.
         let (item_width, item_height, image_width, image_height) = match self.category {
             Category::Games => (
-                GAME_POSTER_WIDTH + 10.0,
-                GAME_POSTER_HEIGHT + 30.0,
+                GAME_POSTER_WIDTH + 16.0,
+                GAME_POSTER_HEIGHT + 140.0,
                 GAME_POSTER_WIDTH,
                 GAME_POSTER_HEIGHT,
-            ), // Poster style
-            _ => (ICON_ITEM_WIDTH, ICON_ITEM_HEIGHT, ICON_SIZE, ICON_SIZE), // Icon style
+            ),
+            _ => (ICON_ITEM_WIDTH, ICON_ITEM_HEIGHT, ICON_SIZE, ICON_SIZE),
         };
 
-        let mut grid = Grid::new().columns(self.cols).spacing(5);
+        let mut grid = Grid::new()
+            .columns(self.cols)
+            .spacing(10)
+            .height(Length::Shrink);
 
         for (i, item) in items.iter().enumerate() {
             let is_selected = i == self.selected_index;
-
-            let icon_widget: Element<Message> = if let Some(icon_path) = &item.icon {
-                if icon_path.ends_with(".svg") {
-                    let svg = Svg::from_path(icon_path)
-                        .width(Length::Fixed(image_width))
-                        .height(Length::Fixed(image_height));
-
-                    Container::new(svg)
-                        .width(Length::Fixed(image_width))
-                        .height(Length::Fixed(image_height))
-                        .style(move |_theme| {
-                            if is_selected {
-                                iced::widget::container::Style {
-                                    border: iced::Border {
-                                        color: Color::from_rgb(0.2, 0.4, 0.8),
-                                        width: 5.0,
-                                        radius: 4.0.into(),
-                                    },
-                                    ..Default::default()
-                                }
-                            } else {
-                                iced::widget::container::Style::default()
-                            }
-                        })
-                        .into()
-                } else {
-                    let image = Image::new(icon_path)
-                        .width(Length::Fixed(image_width))
-                        .height(Length::Fixed(image_height))
-                        .content_fit(ContentFit::Cover);
-
-                    Container::new(image)
-                        .width(Length::Fixed(image_width))
-                        .height(Length::Fixed(image_height))
-                        .style(move |_theme| {
-                            if is_selected {
-                                iced::widget::container::Style {
-                                    border: iced::Border {
-                                        color: Color::from_rgb(0.2, 0.4, 0.8),
-                                        width: 5.0,
-                                        radius: 4.0.into(),
-                                    },
-                                    ..Default::default()
-                                }
-                            } else {
-                                iced::widget::container::Style::default()
-                            }
-                        })
-                        .into()
-                }
-            } else if let Some(handle) = self.default_icon_handle.clone() {
-                let svg = Svg::new(handle)
-                    .width(Length::Fixed(image_width))
-                    .height(Length::Fixed(image_height));
-
-                Container::new(svg)
-                    .width(Length::Fixed(image_width))
-                    .height(Length::Fixed(image_height))
-                    .style(move |_theme| {
-                        if is_selected {
-                            iced::widget::container::Style {
-                                border: iced::Border {
-                                    color: Color::from_rgb(0.2, 0.4, 0.8),
-                                    width: 5.0,
-                                    radius: 4.0.into(),
-                                },
-                                ..Default::default()
-                            }
-                        } else {
-                            iced::widget::container::Style::default()
-                        }
-                    })
-                    .into()
-            } else {
-                Text::new("ICON").color(Color::WHITE).into()
-            };
-
-            let content = if matches!(self.category, Category::Games) {
-                // For games, show poster image + text below
-                Column::new()
-                    .push(icon_widget)
-                    .push(
-                        Text::new(item.name.clone())
-                            .width(Length::Fixed(image_width))
-                            .align_x(Horizontal::Center)
-                            .color(Color::WHITE)
-                            .size(14),
-                    )
-                    .align_x(iced::Alignment::Center)
-                    .spacing(8)
-            } else {
-                Column::new()
-                    .push(icon_widget)
-                    .push(
-                        Text::new(truncate_text(&item.name, MAX_LABEL_CHARS))
-                            .width(Length::Fixed(ICON_ITEM_WIDTH - 16.0))
-                            .align_x(Horizontal::Center)
-                            .color(Color::WHITE)
-                            .size(14),
-                    )
-                    .align_x(iced::Alignment::Center)
-                    .spacing(8)
-            };
-
-            let container = Container::new(content)
-                .width(Length::Fixed(item_width))
-                .height(Length::Fixed(item_height))
-                .center_x(Length::Fixed(item_width))
-                .center_y(Length::Fixed(item_height));
-
-            grid = grid.push(container);
+            grid = grid.push(self.render_item(
+                item,
+                is_selected,
+                image_width,
+                image_height,
+                item_width,
+                item_height,
+            ));
         }
 
         Scrollable::new(grid)
             .width(Length::Fill)
             .height(Length::Fill)
+            .into()
+    }
+
+    fn render_item(
+        &self,
+        item: &LauncherItem,
+        is_selected: bool,
+        image_width: f32,
+        image_height: f32,
+        item_width: f32,
+        item_height: f32,
+    ) -> Element<'_, Message> {
+        let icon_widget: Element<Message> = if let Some(icon_path) = &item.icon {
+            if icon_path.ends_with(".svg") {
+                Svg::from_path(icon_path)
+                    .width(Length::Fixed(image_width))
+                    .height(Length::Fixed(image_height))
+                    .into()
+            } else {
+                Image::new(icon_path)
+                    .width(Length::Fixed(image_width))
+                    .height(Length::Fixed(image_height))
+                    .content_fit(ContentFit::Contain)
+                    .into()
+            }
+        } else if let Some(handle) = self.default_icon_handle.clone() {
+            Svg::new(handle)
+                .width(Length::Fixed(image_width))
+                .height(Length::Fixed(image_height))
+                .into()
+        } else {
+            Container::new(Text::new("ICON").color(Color::WHITE))
+                .width(Length::Fixed(image_width))
+                .height(Length::Fixed(image_height))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into()
+        };
+
+        // Wrap icon in a container for the border
+        let icon_container = Container::new(icon_widget)
+            .padding(6)
+            .style(move |_theme| {
+                if is_selected {
+                    iced::widget::container::Style {
+                        border: iced::Border {
+                            color: Color::from_rgb(0.2, 0.4, 0.8),
+                            width: 5.0,
+                            radius: 4.0.into(),
+                        },
+                        ..Default::default()
+                    }
+                } else {
+                    iced::widget::container::Style::default()
+                }
+            });
+
+        let text = Text::new(item.name.clone());
+
+        let label = text
+            .width(Length::Fixed(item_width)) // Use full item width for text centering
+            .align_x(Horizontal::Center)
+            .color(Color::WHITE)
+            .size(14);
+
+        let content = Column::new()
+            .push(icon_container)
+            .push(label)
+            .align_x(iced::Alignment::Center)
+            .spacing(5);
+
+        Container::new(content)
+            .width(Length::Fixed(item_width))
+            .height(Length::Fixed(item_height))
+            .align_x(Horizontal::Center)
+            .align_y(iced::alignment::Vertical::Center)
             .into()
     }
 
