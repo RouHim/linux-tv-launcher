@@ -1,52 +1,34 @@
 use procfs::process::Process;
 use std::ffi::OsStr;
 use std::time::{Duration, Instant};
-use tracing::{info, warn, debug};
+use tracing::{debug, info, warn};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const STEAM_LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
-const GAME_EXIT_GRACE_PERIOD: Duration = Duration::from_secs(1);
+const GAME_EXIT_GRACE_PERIOD: Duration = Duration::from_secs(2); // Increased grace period for safety
 
 #[derive(Debug, Clone)]
 pub enum MonitorTarget {
     Pid(u32),
     SteamAppId(String),
+    EnvVarEq(String, String),
+    CmdLineContains(String),
+    Any(Vec<MonitorTarget>),
 }
 
 pub async fn monitor_app_process(target: MonitorTarget) {
     info!("Starting process monitor for {:?}", target);
 
-    match &target {
-        MonitorTarget::Pid(pid) => monitor_pid(*pid).await,
-        MonitorTarget::SteamAppId(appid) => monitor_steam_game(appid.clone()).await,
-    }
-    
-    info!("Monitor task complete for {:?}", target);
-}
-
-async fn monitor_pid(pid: u32) {
-    loop {
-        if !is_process_running(pid) {
-            info!("Process {} exited.", pid);
-            break;
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-}
-
-async fn monitor_steam_game(appid: String) {
     let start_time = Instant::now();
     let mut game_found_once = false;
     let mut last_seen_time = Instant::now();
 
-    info!("Monitoring Steam AppId: {}", appid);
-
     loop {
-        let is_running = is_steam_game_running(&appid);
+        let is_running = check_target_running(&target);
 
         if is_running {
             if !game_found_once {
-                info!("Steam game {} detected running.", appid);
+                info!("Target detected running: {:?}", target);
                 game_found_once = true;
             }
             last_seen_time = Instant::now();
@@ -55,22 +37,36 @@ async fn monitor_steam_game(appid: String) {
             if !game_found_once {
                 // We haven't seen it start yet. Check timeout.
                 if start_time.elapsed() > STEAM_LAUNCH_TIMEOUT {
-                    warn!("Timed out waiting for Steam game {} to start.", appid);
+                    warn!("Timed out waiting for target to start: {:?}", target);
                     break;
                 }
-            } else {
+            }
+            else {
                 // We saw it running before, but now it's gone.
-                // Check grace period (in case of launcher -> game transition)
+                // Check grace period
                 if last_seen_time.elapsed() > GAME_EXIT_GRACE_PERIOD {
-                    info!("Steam game {} exited (grace period expired).", appid);
+                    info!("Target exited (grace period expired): {:?}", target);
                     break;
-                } else {
-                    debug!("Steam game {} disappeared, waiting grace period...", appid);
+                }
+                else {
+                    debug!("Target disappeared, waiting grace period... {:?}", target);
                 }
             }
         }
 
         tokio::time::sleep(POLL_INTERVAL).await;
+    }
+
+    info!("Monitor task complete for {:?}", target);
+}
+
+fn check_target_running(target: &MonitorTarget) -> bool {
+    match target {
+        MonitorTarget::Pid(pid) => is_process_running(*pid),
+        MonitorTarget::SteamAppId(appid) => check_env_var("SteamAppId", appid),
+        MonitorTarget::EnvVarEq(key, val) => check_env_var(key, val),
+        MonitorTarget::CmdLineContains(pattern) => check_cmdline(pattern),
+        MonitorTarget::Any(targets) => targets.iter().any(check_target_running),
     }
 }
 
@@ -78,7 +74,7 @@ fn is_process_running(pid: u32) -> bool {
     Process::new(pid as i32).is_ok()
 }
 
-fn is_steam_game_running(target_appid: &str) -> bool {
+fn check_cmdline(pattern: &str) -> bool {
     let all_procs = match procfs::process::all_processes() {
         Ok(p) => p,
         Err(e) => {
@@ -87,8 +83,37 @@ fn is_steam_game_running(target_appid: &str) -> bool {
         }
     };
 
-    let target_key = OsStr::new("SteamAppId");
-    let target_val = OsStr::new(target_appid);
+    let pattern_lower = pattern.to_lowercase();
+
+    for p in all_procs {
+        let process = match p {
+            Ok(proc) => proc,
+            Err(_) => continue,
+        };
+
+        if let Ok(cmdline) = process.cmdline() {
+            // Join args to form full command line
+            let full_cmd = cmdline.join(" ").to_lowercase();
+            if full_cmd.contains(&pattern_lower) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn check_env_var(target_key_str: &str, target_val_str: &str) -> bool {
+    let all_procs = match procfs::process::all_processes() {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("Failed to read processes: {}", e);
+            return false;
+        }
+    };
+
+    let target_key = OsStr::new(target_key_str);
+    let target_val = OsStr::new(target_val_str);
 
     for p in all_procs {
         let process = match p {
@@ -97,8 +122,8 @@ fn is_steam_game_running(target_appid: &str) -> bool {
         };
 
         if let Ok(environ) = process.environ() {
-            if let Some(appid) = environ.get(target_key) {
-                if appid == target_val {
+            if let Some(val) = environ.get(target_key) {
+                if val == target_val {
                     return true;
                 }
             }

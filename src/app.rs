@@ -10,6 +10,7 @@ use iced::{
 use rayon::prelude::*;
 use std::path::PathBuf;
 use uuid::Uuid;
+use urlencoding::decode;
 
 use crate::assets::get_default_icon;
 use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
@@ -25,6 +26,7 @@ use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config};
 use crate::system_update::run_update;
 use tracing::{error, info, warn};
+use urlencoding;
 
 pub struct Launcher {
     apps: Vec<LauncherItem>,
@@ -901,12 +903,12 @@ impl Launcher {
     }
 
     fn activate_selected(&mut self) -> Task<Message> {
-        let action = self
+        let selection = self
             .active_items()
             .get(self.selected_index)
-            .map(|item| item.action.clone());
+            .map(|item| (item.action.clone(), item.name.clone()));
 
-        let Some(action) = action else {
+        let Some((action, item_name)) = selection else {
             return Task::none();
         };
 
@@ -916,10 +918,48 @@ impl Launcher {
             LauncherAction::Launch { exec } => {
                 // Check if it's a Steam game launch
                 let steam_launch_prefix = "steam -applaunch ";
+                let heroic_launch_prefix = "xdg-open heroic://launch/";
+
                 let monitor_target = if exec.starts_with(steam_launch_prefix) {
                     let appid = exec.trim_start_matches(steam_launch_prefix).trim().to_string();
                     // We still launch the steam command, but we monitor the AppId
                     Some(MonitorTarget::SteamAppId(appid))
+                } else if exec.starts_with(heroic_launch_prefix) {
+                    let url_part = exec.trim_start_matches(heroic_launch_prefix).trim();
+                    let parts: Vec<&str> = url_part.split('/').collect();
+
+                    let mut app_name = None;
+
+                    if parts.len() >= 2 {
+                        // store/app_name
+                        if let Ok(decoded) = decode(parts[1]) {
+                            app_name = Some(decoded.to_string());
+                        }
+                    } else if parts.len() == 1 {
+                        // app_name
+                        if let Ok(decoded) = decode(parts[0]) {
+                            app_name = Some(decoded.to_string());
+                        }
+                    }
+
+                    if let Some(name) = app_name {
+                        info!("Detected Heroic launch for app: {}", name);
+                        
+                        let mut targets = vec![
+                            MonitorTarget::EnvVarEq("LEGENDARY_GAME_ID".to_string(), name.clone()),
+                            MonitorTarget::EnvVarEq("HeroicAppName".to_string(), name.clone()),
+                            MonitorTarget::CmdLineContains(item_name.clone()),
+                        ];
+                        
+                        let sanitized_name = item_name.replace(":", "");
+                        if sanitized_name != item_name {
+                             targets.push(MonitorTarget::CmdLineContains(sanitized_name));
+                        }
+
+                        Some(MonitorTarget::Any(targets))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 };
