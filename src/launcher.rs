@@ -13,7 +13,7 @@ pub enum LaunchError {
     },
 }
 
-pub fn launch_app(exec: &str) -> Result<(), LaunchError> {
+pub fn launch_app(exec: &str) -> Result<u32, LaunchError> {
     info!("Launching: {}", exec);
 
     // Split the exec string into command and args
@@ -33,9 +33,10 @@ pub fn launch_app(exec: &str) -> Result<(), LaunchError> {
         .stderr(Stdio::null())
         .spawn()
     {
-        Ok(_) => {
-            info!("Successfully launched {}", cmd);
-            Ok(())
+        Ok(child) => {
+            let pid = child.id();
+            info!("Successfully launched {} (PID: {})", cmd, pid);
+            Ok(pid)
         }
         Err(e) => {
             error!("Failed to launch {}: {}", cmd, e);

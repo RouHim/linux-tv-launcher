@@ -2,6 +2,7 @@ use iced::alignment::Horizontal;
 use iced::keyboard::{self, key::Named, Key};
 use iced::widget::scrollable::{AbsoluteOffset, Viewport};
 use iced::widget::{operation, Id};
+use iced::window;
 use iced::{
     widget::{Column, Container, Grid, Image, Row, Scrollable, Stack, Svg, Text},
     Color, ContentFit, Element, Event, Length, Subscription, Task,
@@ -12,6 +13,7 @@ use uuid::Uuid;
 
 use crate::assets::get_default_icon;
 use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
+use crate::focus_manager::{monitor_app_process, MonitorTarget};
 use crate::game_sources::scan_games;
 use crate::gamepad::gamepad_subscription;
 use crate::image_cache::ImageCache;
@@ -52,6 +54,7 @@ pub struct Launcher {
     app_picker_scrollable_id: Id,
     app_picker_scroll_offset: f32,
     app_picker_viewport_height: f32,
+    window_id: Option<window::Id>,
 }
 
 const GAME_POSTER_WIDTH: f32 = 200.0;
@@ -79,6 +82,9 @@ pub enum Message {
     AddSelectedApp,
     CloseAppPicker,
     AppPickerScrolled(Viewport),
+    GameExited,
+    WindowOpened(window::Id),
+    WindowFocused(window::Id),
     None,
 }
 
@@ -124,6 +130,7 @@ impl Launcher {
             app_picker_scrollable_id: Id::unique(),
             app_picker_scroll_offset: 0.0,
             app_picker_viewport_height: 0.0,
+            window_id: None,
         };
         launcher.update_columns();
 
@@ -319,6 +326,38 @@ impl Launcher {
             Message::AppPickerScrolled(viewport) => {
                 self.app_picker_scroll_offset = viewport.absolute_offset().y;
                 self.app_picker_viewport_height = viewport.bounds().height;
+                Task::none()
+            }
+            Message::GameExited => {
+                info!("Game/App process exited. Recreating window to regain focus.");
+                if let Some(old_id) = self.window_id {
+                    let settings = window::Settings {
+                        decorations: false,
+                        fullscreen: true,
+                        level: window::Level::AlwaysOnTop,
+                        ..Default::default()
+                    };
+                    let (new_id, open_task) = window::open(settings);
+                    self.window_id = Some(new_id);
+
+                    Task::batch(vec![
+                        open_task.map(Message::WindowOpened),
+                        window::close(old_id),
+                    ])
+                } else {
+                    Task::none()
+                }
+            }
+            Message::WindowOpened(id) => {
+                info!("Main window opened with ID: {:?}", id);
+                self.window_id = Some(id);
+                Task::none()
+            }
+            Message::WindowFocused(id) => {
+                if self.window_id.is_none() {
+                    info!("Captured window ID from Focus event: {:?}", id);
+                    self.window_id = Some(id);
+                }
                 Task::none()
             }
             Message::None => Task::none(),
@@ -585,13 +624,15 @@ impl Launcher {
     pub fn subscription(&self) -> Subscription<Message> {
         let gamepad = gamepad_subscription().map(Message::Input);
 
-        let window_events = iced::event::listen_with(|event, _status, _window| match event {
+        let window_events = iced::event::listen_with(|event, _status, window_id| match event {
+            Event::Window(iced::window::Event::Opened { .. }) => Some(Message::WindowOpened(window_id)),
             Event::Window(iced::window::Event::Rescaled(scale_factor)) => {
                 Some(Message::ScaleFactorChanged(scale_factor as f64))
             }
             Event::Window(iced::window::Event::Resized(size)) => {
                 Some(Message::WindowResized(size.width, size.height))
             }
+            Event::Window(iced::window::Event::Focused) => Some(Message::WindowFocused(window_id)),
             _ => None,
         });
 
@@ -688,7 +729,7 @@ impl Launcher {
                 }
             }
             Action::Select => {
-                self.activate_selected();
+                return self.activate_selected();
             }
             _ => {}
         }
@@ -718,7 +759,7 @@ impl Launcher {
                     (Category::Apps, 0) | (Category::Games, 0) | (Category::System, 0) => {
                         // Launch
                         self.context_menu_open = false;
-                        self.activate_selected();
+                        return self.activate_selected();
                     }
                     (Category::Apps, 1) => {
                         // Remove Entry
@@ -859,30 +900,61 @@ impl Launcher {
         self.snap_to_picker_selection()
     }
 
-    fn activate_selected(&mut self) {
+    fn activate_selected(&mut self) -> Task<Message> {
         let action = self
             .active_items()
             .get(self.selected_index)
             .map(|item| item.action.clone());
 
         let Some(action) = action else {
-            return;
+            return Task::none();
         };
 
         self.status_message = None;
 
         match action {
             LauncherAction::Launch { exec } => {
-                if let Err(err) = launch_app(&exec) {
-                    self.status_message = Some(err.to_string());
+                // Check if it's a Steam game launch
+                let steam_launch_prefix = "steam -applaunch ";
+                let monitor_target = if exec.starts_with(steam_launch_prefix) {
+                    let appid = exec.trim_start_matches(steam_launch_prefix).trim().to_string();
+                    // We still launch the steam command, but we monitor the AppId
+                    Some(MonitorTarget::SteamAppId(appid))
+                } else {
+                    None
+                };
+
+                match launch_app(&exec) {
+                    Ok(pid) => {
+                        let target = monitor_target.unwrap_or(MonitorTarget::Pid(pid));
+                        let monitor_task = Task::perform(
+                            async move { monitor_app_process(target).await },
+                            |_| Message::GameExited,
+                        );
+
+                        if let Some(id) = self.window_id {
+                            Task::batch(vec![
+                                window::minimize(id, true),
+                                monitor_task,
+                            ])
+                        } else {
+                            monitor_task
+                        }
+                    }
+                    Err(err) => {
+                        self.status_message = Some(err.to_string());
+                        Task::none()
+                    }
                 }
             }
             LauncherAction::SystemUpdate => match run_update() {
                 Ok(message) => {
                     self.status_message = Some(message);
+                    Task::none()
                 }
                 Err(err) => {
                     self.status_message = Some(err.to_string());
+                    Task::none()
                 }
             },
             LauncherAction::Shutdown => {
@@ -892,6 +964,7 @@ impl Launcher {
                 {
                     self.status_message = Some(format!("Failed to shutdown: {}", e));
                 }
+                Task::none()
             }
             LauncherAction::Suspend => {
                 if let Err(e) = std::process::Command::new("systemctl")
@@ -900,6 +973,7 @@ impl Launcher {
                 {
                     self.status_message = Some(format!("Failed to suspend: {}", e));
                 }
+                Task::none()
             }
             LauncherAction::Exit => {
                 std::process::exit(0);

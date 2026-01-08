@@ -3,6 +3,7 @@ use tracing_subscriber::EnvFilter;
 mod app;
 mod assets;
 mod desktop_apps;
+mod focus_manager;
 mod game_sources;
 mod gamepad;
 mod image_cache;
@@ -31,6 +32,7 @@ fn main() -> iced::Result {
         .window(iced::window::Settings {
             decorations: false,
             fullscreen: true,
+            level: iced::window::Level::AlwaysOnTop,
             ..Default::default()
         })
         .run()
