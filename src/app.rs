@@ -615,8 +615,9 @@ impl Launcher {
             tabs = tabs.push(tab);
         }
 
-        Column::new()
-            .push(tabs)
+        Container::new(tabs)
+            .width(Length::Fill)
+            .center_x(Length::Fill)
             .into()
     }
 
