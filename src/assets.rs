@@ -19,3 +19,7 @@ pub fn get_suspend_icon() -> Option<Vec<u8>> {
 pub fn get_exit_icon() -> Option<Vec<u8>> {
     Asset::get("exit.svg").map(|f| f.data.into_owned())
 }
+
+pub fn get_sansation_font() -> Option<Vec<u8>> {
+    Asset::get("Sansation-Regular.ttf").map(|f| f.data.into_owned())
+}

@@ -26,6 +26,7 @@ fn main() -> iced::Result {
     iced::application(Launcher::new, Launcher::update, Launcher::view)
         .title(|launcher: &Launcher| launcher.title())
         .subscription(Launcher::subscription)
+        .font(assets::get_sansation_font().expect("Sansation font embedded"))
         .window(iced::window::Settings {
             decorations: false,
             fullscreen: true,

@@ -48,6 +48,9 @@ const GAME_POSTER_HEIGHT: f32 = 300.0;
 
 // App/System icon dimensions
 const ICON_SIZE: f32 = 128.0;
+
+// Custom font
+const SANSATION: iced::Font = iced::Font::with_name("Sansation");
 const ICON_ITEM_WIDTH: f32 = 150.0; // Increased to allow padding
 const ICON_ITEM_HEIGHT: f32 = 280.0; // Increased to allow text wrapping
 
@@ -253,6 +256,7 @@ impl Launcher {
         for (i, item) in menu_items.iter().enumerate() {
             let is_selected = i == self.context_menu_index;
             let text = Text::new(*item)
+                .font(SANSATION)
                 .size(20)
                 .color(if is_selected {
                     Color::WHITE
@@ -583,11 +587,14 @@ impl Launcher {
         let mut tabs = Row::new().spacing(12);
         for category in Category::ALL {
             let is_selected = category == self.category;
-            let label = Text::new(category.title()).size(22).color(if is_selected {
-                Color::WHITE
-            } else {
-                Color::from_rgb(0.7, 0.7, 0.7)
-            });
+            let label = Text::new(category.title())
+                .font(SANSATION)
+                .size(22)
+                .color(if is_selected {
+                    Color::WHITE
+                } else {
+                    Color::from_rgb(0.7, 0.7, 0.7)
+                });
 
             let tab = Container::new(label).padding(8).style(move |_theme| {
                 if is_selected {
@@ -612,6 +619,7 @@ impl Launcher {
             .push(tabs)
             .push(
                 Text::new("Tab/Start to switch categories")
+                    .font(SANSATION)
                     .size(14)
                     .color(Color::from_rgb(0.6, 0.6, 0.6)),
             )
@@ -636,7 +644,7 @@ impl Launcher {
             Category::System => {
                 if self.system_items.is_empty() {
                     Column::new()
-                        .push(Text::new("No system actions available.").color(Color::WHITE))
+                        .push(Text::new("No system actions available.").font(SANSATION).color(Color::WHITE))
                         .align_x(iced::Alignment::Center)
                         .into()
                 } else {
@@ -660,7 +668,7 @@ impl Launcher {
                 loading_message.to_string()
             };
             return Column::new()
-                .push(Text::new(message).color(Color::WHITE))
+                .push(Text::new(message).font(SANSATION).color(Color::WHITE))
                 .align_x(iced::Alignment::Center)
                 .into();
         }
@@ -752,7 +760,7 @@ impl Launcher {
                 .height(Length::Fixed(image_height))
                 .into()
         } else {
-            Container::new(Text::new("ICON").color(Color::WHITE))
+            Container::new(Text::new("ICON").font(SANSATION).color(Color::WHITE))
                 .width(Length::Fixed(image_width))
                 .height(Length::Fixed(image_height))
                 .center_x(Length::Fill)
@@ -766,6 +774,7 @@ impl Launcher {
         let text = Text::new(item.name.clone());
 
         let label = text
+            .font(SANSATION)
             .width(Length::Fixed(item_width)) // Use full item width for text centering
             .align_x(Horizontal::Center)
             .color(Color::WHITE)
@@ -803,7 +812,7 @@ impl Launcher {
     fn render_status(&self) -> Option<Element<'_, Message>> {
         let status = self.status_message.as_ref()?;
         Some(
-            Container::new(Text::new(status).color(Color::from_rgb(0.9, 0.8, 0.4)))
+            Container::new(Text::new(status).font(SANSATION).color(Color::from_rgb(0.9, 0.8, 0.4)))
                 .padding(8)
                 .style(|_theme| iced::widget::container::Style {
                     background: Some(Color::from_rgb(0.12, 0.12, 0.12).into()),
