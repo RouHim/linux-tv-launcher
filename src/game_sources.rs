@@ -140,7 +140,6 @@ fn scan_heroic_games() -> Vec<AppEntry> {
     let home = base_dirs.home_dir();
 
     let mut games = Vec::new();
-    let mut seen = HashSet::new();
     let mut seen_app_names = HashSet::new();
 
     let heroic_roots = [
@@ -153,219 +152,51 @@ fn scan_heroic_games() -> Vec<AppEntry> {
             continue;
         }
 
+        // Phase 1: Scan store library files (Epic, GOG, Amazon)
         let store_cache = root.join("store_cache");
         let library_files = [
             ("legendary_library.json", "legendary"),
             ("gog_library.json", "gog"),
             ("nile_library.json", "nile"),
         ];
-        let install_info_files = [
-            ("legendary_install_info.json", "legendary"),
-            ("gog_install_info.json", "gog"),
-            ("nile_install_info.json", "nile"),
-        ];
 
         for (file, store_hint) in library_files {
             let path = store_cache.join(file);
-            if !path.exists() {
-                continue;
-            }
-
-            let contents = match fs::read_to_string(&path) {
-                Ok(contents) => contents,
-                Err(err) => {
-                    warn!("Failed to read Heroic file {}: {}", path.display(), err);
-                    continue;
-                }
-            };
-
-            let games_from_file = parse_heroic_library_json(&contents, store_hint);
-            for game in games_from_file {
-                if is_ignored_app(&game.title, &game.app_name) {
-                    continue;
-                }
-                if seen_app_names.contains(&game.app_name) {
-                    continue;
-                }
-                seen_app_names.insert(game.app_name.clone());
-
-                let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, game.art_cover)
-                    .with_executable(game.executable);
-                let key = format!("{}:{}", entry.name, entry.exec);
-                if seen.insert(key) {
-                    games.push(entry);
+            if let Some(contents) = read_file_if_exists(&path) {
+                for game in parse_heroic_library_json(&contents, store_hint) {
+                    if !is_ignored_app(&game.title, &game.app_name)
+                        && seen_app_names.insert(game.app_name.clone())
+                    {
+                        let exec = heroic_exec(&game.store, &game.app_name);
+                        games.push(
+                            AppEntry::new(game.title, exec, game.art_cover)
+                                .with_executable(game.executable),
+                        );
+                    }
                 }
             }
         }
 
-        for (file, store_hint) in install_info_files {
-            let path = store_cache.join(file);
-            if !path.exists() {
-                continue;
-            }
-
-            let contents = match fs::read_to_string(&path) {
-                Ok(contents) => contents,
-                Err(err) => {
-                    warn!("Failed to read Heroic file {}: {}", path.display(), err);
-                    continue;
-                }
-            };
-
-            // install_info files imply installation, so we don't strictly require "installed": true
-            let games_from_file = parse_heroic_install_info_json(&contents, store_hint);
-            for game in games_from_file {
-                if is_ignored_app(&game.title, &game.app_name) {
-                    continue;
-                }
-                if seen_app_names.contains(&game.app_name) {
-                    continue;
-                }
-                seen_app_names.insert(game.app_name.clone());
-
-                let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, game.art_cover)
-                    .with_executable(game.executable);
-                let key = format!("{}:{}", entry.name, entry.exec);
-                if seen.insert(key) {
-                    games.push(entry);
-                }
-            }
-        }
-
-        // Scan for sideloaded games or other config files
-        // Check root and store_cache for potential game lists
-        let generic_files = [
-            root.join("sideload_cache.json"),
-            root.join("store_cache").join("sideload_cache.json"),
+        // Phase 2: Scan sideloaded games
+        // Primary: sideload_apps/library.json
+        // Fallback: store_cache/sideload_cache.json (legacy format)
+        let sideload_paths = [
             root.join("sideload_apps").join("library.json"),
-            root.join("config.json"),
-            root.join("store").join("config.json"),
-            root.join("library.json"),
+            store_cache.join("sideload_cache.json"),
         ];
 
-        for path in generic_files {
-            if !path.exists() {
-                continue;
-            }
-
-            let contents = match fs::read_to_string(&path) {
-                Ok(contents) => contents,
-                Err(err) => {
-                    warn!("Failed to read Heroic file {}: {}", path.display(), err);
-                    continue;
-                }
-            };
-
-            // Parse as install info (flexible) to find any embedded game objects
-            let games_from_file = parse_heroic_install_info_json(&contents, "heroic");
-            for game in games_from_file {
-                if is_ignored_app(&game.title, &game.app_name) {
-                    continue;
-                }
-                if seen_app_names.contains(&game.app_name) {
-                    continue;
-                }
-                seen_app_names.insert(game.app_name.clone());
-
-                let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, game.art_cover)
-                    .with_executable(game.executable);
-                let key = format!("{}:{}", entry.name, entry.exec);
-                if seen.insert(key) {
-                    games.push(entry);
-                }
-            }
-        }
-
-        // Scan GameConfig folder for individual game configs (sideloaded or store games)
-        let game_config_dir = root.join("GameConfig");
-        if game_config_dir.exists() {
-            if let Ok(entries) = fs::read_dir(&game_config_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                        continue;
-                    }
-
-                    let file_stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or_default();
-                    if file_stem.is_empty() {
-                        continue;
-                    }
-
-                    let contents = match fs::read_to_string(&path) {
-                        Ok(contents) => contents,
-                        Err(_) => continue,
-                    };
-
-                    // Assume "heroic" as store for generic GameConfig files unless specified otherwise
-                    // Pass file_stem as fallback app_name
-                    if let Some(game) =
-                        parse_heroic_game_config(&contents, "heroic", Some(file_stem))
+        for path in sideload_paths {
+            if let Some(contents) = read_file_if_exists(&path) {
+                for game in parse_heroic_library_json(&contents, "sideload") {
+                    if !is_ignored_app(&game.title, &game.app_name)
+                        && seen_app_names.insert(game.app_name.clone())
                     {
-                        if is_ignored_app(&game.title, &game.app_name) {
-                            continue;
-                        }
-                        if seen_app_names.contains(&game.app_name) {
-                            continue;
-                        }
-                        seen_app_names.insert(game.app_name.clone());
-
                         let exec = heroic_exec(&game.store, &game.app_name);
-                        let entry = AppEntry::new(game.title, exec, game.art_cover)
-                            .with_executable(game.executable);
-                        let key = format!("{}:{}", entry.name, entry.exec);
-                        if seen.insert(key) {
-                            games.push(entry);
-                        }
+                        games.push(
+                            AppEntry::new(game.title, exec, game.art_cover)
+                                .with_executable(game.executable),
+                        );
                     }
-                }
-            }
-        }
-    }
-
-    let installed_roots = [
-        config_dir.join("heroic"),
-        config_dir.join("legendary"),
-        home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic"),
-        home.join(".var/app/com.heroicgameslauncher.hgl/config/legendary"),
-    ];
-
-    for root in installed_roots {
-        if !root.exists() {
-            continue;
-        }
-
-        let mut installed_files = Vec::new();
-        collect_installed_json_files(&root, 4, &mut installed_files);
-
-        for path in installed_files {
-            let store = store_from_path(&path);
-            let contents = match fs::read_to_string(&path) {
-                Ok(contents) => contents,
-                Err(err) => {
-                    warn!("Failed to read Heroic file {}: {}", path.display(), err);
-                    continue;
-                }
-            };
-
-            let games_from_file = parse_heroic_installed_json(&contents, &store);
-            for game in games_from_file {
-                if seen_app_names.contains(&game.app_name) {
-                    continue;
-                }
-                seen_app_names.insert(game.app_name.clone());
-
-                let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, game.art_cover)
-                    .with_executable(game.executable);
-                let key = format!("{}:{}", entry.name, entry.exec);
-                if seen.insert(key) {
-                    games.push(entry);
                 }
             }
         }
@@ -374,41 +205,16 @@ fn scan_heroic_games() -> Vec<AppEntry> {
     games
 }
 
-fn collect_installed_json_files(base: &Path, depth: usize, out: &mut Vec<PathBuf>) {
-    if depth == 0 {
-        return;
+fn read_file_if_exists(path: &Path) -> Option<String> {
+    if !path.exists() {
+        return None;
     }
-
-    let direct = base.join("installed.json");
-    if direct.exists() {
-        out.push(direct);
-    }
-
-    let entries = match fs::read_dir(base) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_installed_json_files(&path, depth - 1, out);
-        } else if path.file_name().and_then(|name| name.to_str()) == Some("installed.json") {
-            out.push(path);
+    match fs::read_to_string(path) {
+        Ok(contents) => Some(contents),
+        Err(err) => {
+            warn!("Failed to read Heroic file {}: {}", path.display(), err);
+            None
         }
-    }
-}
-
-fn store_from_path(path: &Path) -> String {
-    let lower = path.to_string_lossy().to_lowercase();
-    if lower.contains("legendary") {
-        "legendary".to_string()
-    } else if lower.contains("gog") {
-        "gog".to_string()
-    } else if lower.contains("amazon") {
-        "amazon".to_string()
-    } else {
-        "heroic".to_string()
     }
 }
 
@@ -458,57 +264,6 @@ fn parse_heroic_library_json(contents: &str, store_hint: &str) -> Vec<HeroicGame
 
     let mut games = Vec::new();
     collect_heroic_games(&value, store_hint, true, &mut games);
-    games
-}
-
-fn parse_heroic_install_info_json(contents: &str, store_hint: &str) -> Vec<HeroicGame> {
-    let value: Value = match serde_json::from_str(contents) {
-        Ok(value) => value,
-        Err(err) => {
-            debug!("Failed to parse Heroic JSON: {}", err);
-            return Vec::new();
-        }
-    };
-
-    let mut games = Vec::new();
-    // Relaxed check: don't require explicit "installed": true for install_info files
-    collect_heroic_games(&value, store_hint, false, &mut games);
-    games
-}
-
-fn parse_heroic_game_config(
-    contents: &str,
-    store_hint: &str,
-    app_name_hint: Option<&str>,
-) -> Option<HeroicGame> {
-    let value: Value = match serde_json::from_str(contents) {
-        Ok(value) => value,
-        Err(err) => {
-            debug!("Failed to parse Heroic GameConfig JSON: {}", err);
-            return None;
-        }
-    };
-
-    if let Value::Object(map) = value {
-        // For individual config files, we don't strictly require "installed": true,
-        // but if it says "false", we respect it.
-        heroic_game_from_object(app_name_hint, &map, store_hint, false)
-    } else {
-        None
-    }
-}
-
-fn parse_heroic_installed_json(contents: &str, store_hint: &str) -> Vec<HeroicGame> {
-    let value: Value = match serde_json::from_str(contents) {
-        Ok(value) => value,
-        Err(err) => {
-            debug!("Failed to parse Heroic JSON: {}", err);
-            return Vec::new();
-        }
-    };
-
-    let mut games = Vec::new();
-    collect_heroic_games(&value, store_hint, false, &mut games);
     games
 }
 
@@ -795,42 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_heroic_installed_json_extracts_installed_games() {
-        let contents = r#"
-        {
-            "installed": [
-                {"app_name": "fortnite", "title": "Fortnite", "installed": true},
-                {"app_name": "demo", "title": "Demo", "installed": false}
-            ]
-        }
-        "#;
-
-        let games = parse_heroic_installed_json(contents, "legendary");
-        assert_eq!(games.len(), 1);
-        assert_eq!(games[0].app_name, "fortnite");
-        assert_eq!(games[0].title, "Fortnite");
-    }
-
-    #[test]
-    fn test_parse_heroic_install_info_json_requires_installed() {
-        let contents = r#"
-        {
-            "games": [
-                {"app_name": "nile-1", "title": "Nile One", "is_installed": true, "runner": "nile"},
-                {"app_name": "nile-2", "title": "Nile Two", "is_installed": false, "runner": "nile"}
-            ]
-        }
-        "#;
-
-        let games = parse_heroic_install_info_json(contents, "nile");
-        assert_eq!(games.len(), 1);
-        assert_eq!(games[0].app_name, "nile-1");
-        assert_eq!(games[0].title, "Nile One");
-        assert_eq!(games[0].store, "nile");
-    }
-
-    #[test]
-    fn test_parse_heroic_library_json_requires_installed() {
+    fn test_parse_heroic_library_json_filters_uninstalled() {
         let contents = r#"
         {
             "games": [
@@ -848,38 +568,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_heroic_game_config_parses_single_game() {
-        let contents = r#"
-        {
-            "app_name": "MyGame",
-            "title": "My Custom Game",
-            "runner": "heroic",
-            "is_installed": true
-        }
-        "#;
-
-        let game = parse_heroic_game_config(contents, "heroic", None).expect("Parsed game config");
-        assert_eq!(game.app_name, "MyGame");
-        assert_eq!(game.title, "My Custom Game");
-        assert_eq!(game.store, "heroic");
-    }
-
-    #[test]
-    fn test_parse_heroic_game_config_uses_hint() {
-        let contents = r#"
-        {
-            "title": "Sideloaded",
-            "runner": "heroic"
-        }
-        "#;
-
-        let game = parse_heroic_game_config(contents, "heroic", Some("sideload-123"))
-            .expect("Parsed game config with hint");
-        assert_eq!(game.app_name, "sideload-123");
-        assert_eq!(game.title, "Sideloaded");
-    }
-
-    #[test]
     fn test_is_ignored_app() {
         assert!(is_ignored_app("Proton Experimental", "1493710"));
         assert!(is_ignored_app("Steam Linux Runtime - Sniper", "1628350"));
@@ -887,7 +575,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_sideload_cache_json() {
+    fn test_parse_sideload_array_format() {
         let contents = r#"
         [
             {
@@ -899,7 +587,7 @@ mod tests {
         ]
         "#;
 
-        let games = parse_heroic_install_info_json(contents, "heroic");
+        let games = parse_heroic_library_json(contents, "sideload");
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].app_name, "Sideload1");
         assert_eq!(games[0].title, "My Sideloaded Game");
@@ -924,7 +612,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_sideload_apps_library_with_art_cover() {
+    fn test_parse_library_with_art_cover() {
         let contents = r#"
         {
             "games": [
@@ -940,7 +628,7 @@ mod tests {
         }
         "#;
 
-        let games = parse_heroic_install_info_json(contents, "sideload");
+        let games = parse_heroic_library_json(contents, "sideload");
         assert_eq!(games.len(), 1);
         assert_eq!(games[0].app_name, "testAppId");
         assert_eq!(games[0].title, "Robot Arena 2");
