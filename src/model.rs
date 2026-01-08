@@ -26,6 +26,14 @@ impl Category {
             Category::System => Category::Apps,
         }
     }
+
+    pub fn prev(self) -> Self {
+        match self {
+            Category::Apps => Category::System,
+            Category::Games => Category::Apps,
+            Category::System => Category::Games,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

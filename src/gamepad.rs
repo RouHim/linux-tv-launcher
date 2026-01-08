@@ -26,14 +26,22 @@ pub fn gamepad_subscription() -> Subscription<Action> {
                             EventType::ButtonPressed(Button::South, _) => Some(Action::Select),
                             EventType::ButtonPressed(Button::East, _) => Some(Action::Back),
                             EventType::ButtonPressed(Button::West, _) => Some(Action::ContextMenu),
-                            EventType::ButtonPressed(Button::Start, _) => {
-                                Some(Action::NextCategory)
-                            }
-                            EventType::ButtonPressed(Button::Select, _) => Some(Action::Quit),
                             EventType::ButtonPressed(Button::DPadUp, _) => Some(Action::Up),
                             EventType::ButtonPressed(Button::DPadDown, _) => Some(Action::Down),
                             EventType::ButtonPressed(Button::DPadLeft, _) => Some(Action::Left),
                             EventType::ButtonPressed(Button::DPadRight, _) => Some(Action::Right),
+                            EventType::ButtonPressed(Button::LeftTrigger, _) => {
+                                Some(Action::PrevCategory)
+                            }
+                            EventType::ButtonPressed(Button::RightTrigger, _) => {
+                                Some(Action::NextCategory)
+                            }
+                            EventType::ButtonPressed(Button::LeftTrigger2, _) => {
+                                Some(Action::PrevCategory)
+                            }
+                            EventType::ButtonPressed(Button::RightTrigger2, _) => {
+                                Some(Action::NextCategory)
+                            }
                             EventType::AxisChanged(gilrs::Axis::LeftStickX, value, _) => {
                                 let new_dir = if value <= -deadzone {
                                     -1

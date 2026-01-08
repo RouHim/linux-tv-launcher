@@ -698,6 +698,10 @@ impl Launcher {
                 self.cycle_category();
                 return Task::none();
             }
+            Action::PrevCategory => {
+                self.cycle_category_back();
+                return Task::none();
+            }
             Action::Back => {
                 self.status_message = None;
                 return Task::none();
@@ -1031,6 +1035,13 @@ impl Launcher {
 
     fn cycle_category(&mut self) {
         self.category = self.category.next();
+        self.selected_index = 0;
+        self.status_message = None;
+        self.update_columns();
+    }
+
+    fn cycle_category_back(&mut self) {
+        self.category = self.category.prev();
         self.selected_index = 0;
         self.status_message = None;
         self.update_columns();
