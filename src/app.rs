@@ -59,6 +59,8 @@ pub struct Launcher {
     window_id: Option<window::Id>,
     // Help modal state
     help_modal_open: bool,
+    // Game running state - disables input subscriptions
+    game_running: bool,
 }
 
 const GAME_POSTER_WIDTH: f32 = 200.0;
@@ -136,6 +138,7 @@ impl Launcher {
             app_picker_viewport_height: 0.0,
             window_id: None,
             help_modal_open: false,
+            game_running: false,
         };
         launcher.update_columns();
 
@@ -335,6 +338,7 @@ impl Launcher {
                 Task::none()
             }
             Message::GameExited => {
+                self.game_running = false;
                 info!("Game/App process exited. Recreating window to regain focus.");
                 if let Some(old_id) = self.window_id {
                     let settings = window::Settings {
@@ -638,6 +642,11 @@ impl Launcher {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
+        // Disable all input subscriptions while a game is running
+        if self.game_running {
+            return Subscription::none();
+        }
+
         let gamepad = gamepad_subscription().map(Message::Input);
 
         let window_events = iced::event::listen_with(|event, _status, window_id| match event {
@@ -1010,6 +1019,7 @@ impl Launcher {
 
                 match launch_app(&exec) {
                     Ok(pid) => {
+                        self.game_running = true;
                         let target = monitor_target.unwrap_or(MonitorTarget::Pid(pid));
                         let monitor_task = Task::perform(
                             async move { monitor_app_process(target).await },
