@@ -45,6 +45,7 @@ pub struct LauncherItem {
     pub action: LauncherAction,
     /// Source image URL (e.g., from Heroic) to use for fetching cover art
     pub source_image_url: Option<String>,
+    pub game_executable: Option<String>,
 }
 
 impl LauncherItem {
@@ -67,6 +68,7 @@ impl LauncherItem {
             icon,
             action: LauncherAction::Launch { exec: entry.exec },
             source_image_url,
+            game_executable: entry.game_executable,
         }
     }
 
@@ -77,6 +79,7 @@ impl LauncherItem {
             icon: None,
             action: LauncherAction::SystemUpdate,
             source_image_url: None,
+            game_executable: None,
         }
     }
 
@@ -87,6 +90,7 @@ impl LauncherItem {
             icon: Some("assets/shutdown.svg".to_string()),
             action: LauncherAction::Shutdown,
             source_image_url: None,
+            game_executable: None,
         }
     }
 
@@ -97,6 +101,7 @@ impl LauncherItem {
             icon: Some("assets/suspend.svg".to_string()),
             action: LauncherAction::Suspend,
             source_image_url: None,
+            game_executable: None,
         }
     }
 
@@ -107,6 +112,7 @@ impl LauncherItem {
             icon: Some("assets/exit.svg".to_string()),
             action: LauncherAction::Exit,
             source_image_url: None,
+            game_executable: None,
         }
     }
 }
@@ -117,6 +123,8 @@ pub struct AppEntry {
     pub name: String,
     pub exec: String,
     pub icon: Option<String>,
+    #[serde(default)]
+    pub game_executable: Option<String>,
 }
 
 impl AppEntry {
@@ -126,7 +134,13 @@ impl AppEntry {
             name,
             exec,
             icon,
+            game_executable: None,
         }
+    }
+    
+    pub fn with_executable(mut self, executable: Option<String>) -> Self {
+        self.game_executable = executable;
+        self
     }
 }
 

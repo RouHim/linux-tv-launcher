@@ -190,7 +190,8 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                 seen_app_names.insert(game.app_name.clone());
 
                 let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, game.art_cover);
+                let entry = AppEntry::new(game.title, exec, game.art_cover)
+                    .with_executable(game.executable);
                 let key = format!("{}:{}", entry.name, entry.exec);
                 if seen.insert(key) {
                     games.push(entry);
@@ -224,7 +225,8 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                 seen_app_names.insert(game.app_name.clone());
 
                 let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, game.art_cover);
+                let entry = AppEntry::new(game.title, exec, game.art_cover)
+                    .with_executable(game.executable);
                 let key = format!("{}:{}", entry.name, entry.exec);
                 if seen.insert(key) {
                     games.push(entry);
@@ -268,7 +270,8 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                 seen_app_names.insert(game.app_name.clone());
 
                 let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, game.art_cover);
+                let entry = AppEntry::new(game.title, exec, game.art_cover)
+                    .with_executable(game.executable);
                 let key = format!("{}:{}", entry.name, entry.exec);
                 if seen.insert(key) {
                     games.push(entry);
@@ -313,7 +316,8 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                         seen_app_names.insert(game.app_name.clone());
 
                         let exec = heroic_exec(&game.store, &game.app_name);
-                        let entry = AppEntry::new(game.title, exec, game.art_cover);
+                        let entry = AppEntry::new(game.title, exec, game.art_cover)
+                            .with_executable(game.executable);
                         let key = format!("{}:{}", entry.name, entry.exec);
                         if seen.insert(key) {
                             games.push(entry);
@@ -357,7 +361,8 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                 seen_app_names.insert(game.app_name.clone());
 
                 let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, game.art_cover);
+                let entry = AppEntry::new(game.title, exec, game.art_cover)
+                    .with_executable(game.executable);
                 let key = format!("{}:{}", entry.name, entry.exec);
                 if seen.insert(key) {
                     games.push(entry);
@@ -439,6 +444,7 @@ struct HeroicGame {
     title: String,
     store: String,
     art_cover: Option<String>,
+    executable: Option<String>,
 }
 
 fn parse_heroic_library_json(contents: &str, store_hint: &str) -> Vec<HeroicGame> {
@@ -614,12 +620,19 @@ fn heroic_game_from_object(
         .and_then(|v| v.as_str())
         .or_else(|| obj.get("art_square").and_then(|v| v.as_str()))
         .map(String::from);
+        
+    let executable = obj
+        .get("install")
+        .and_then(|v| v.get("executable"))
+        .and_then(|v| v.as_str())
+        .map(|path| Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string());
 
     Some(HeroicGame {
         app_name: app_name.to_string(),
         title: title.to_string(),
         store: store.to_string(),
         art_cover,
+        executable,
     })
 }
 

@@ -303,6 +303,7 @@ impl Launcher {
                                 name: item.name.clone(),
                                 exec: exec.clone(),
                                 icon: item.icon.clone(),
+                                game_executable: item.game_executable.clone(),
                             }),
                             _ => None,
                         })
@@ -785,6 +786,7 @@ impl Launcher {
                                             | LauncherAction::Suspend
                                             | LauncherAction::Exit => unreachable!(),
                                         },
+                                        game_executable: item.game_executable.clone(),
                                     })
                                     .collect::<Vec<_>>(),
                             ) {
@@ -906,9 +908,9 @@ impl Launcher {
         let selection = self
             .active_items()
             .get(self.selected_index)
-            .map(|item| (item.action.clone(), item.name.clone()));
+            .map(|item| (item.action.clone(), item.name.clone(), item.game_executable.clone()));
 
-        let Some((action, item_name)) = selection else {
+        let Some((action, item_name, game_executable)) = selection else {
             return Task::none();
         };
 
@@ -950,6 +952,12 @@ impl Launcher {
                             MonitorTarget::EnvVarEq("HeroicAppName".to_string(), name.clone()),
                             MonitorTarget::CmdLineContains(item_name.clone()),
                         ];
+                        
+                        // Add exact executable match if available
+                        if let Some(exe) = game_executable {
+                            info!("Monitoring executable for {}: {}", name, exe);
+                            targets.push(MonitorTarget::CmdLineContains(exe));
+                        }
                         
                         let sanitized_name = item_name.replace(":", "");
                         if sanitized_name != item_name {
