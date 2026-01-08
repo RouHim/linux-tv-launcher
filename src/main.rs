@@ -8,6 +8,7 @@ mod image_cache;
 mod input;
 mod launcher;
 mod model;
+mod searxng;
 mod steamgriddb;
 mod storage;
 mod system_update;

@@ -43,15 +43,30 @@ pub struct LauncherItem {
     pub name: String,
     pub icon: Option<String>,
     pub action: LauncherAction,
+    /// Source image URL (e.g., from Heroic) to use for fetching cover art
+    pub source_image_url: Option<String>,
 }
 
 impl LauncherItem {
     pub fn from_app_entry(entry: AppEntry) -> Self {
+        // If icon is a URL (starts with http), treat it as source_image_url
+        // Otherwise treat it as a local file path
+        let (icon, source_image_url) = if let Some(ref icon_str) = entry.icon {
+            if icon_str.starts_with("http://") || icon_str.starts_with("https://") {
+                (None, Some(icon_str.clone()))
+            } else {
+                (entry.icon.clone(), None)
+            }
+        } else {
+            (None, None)
+        };
+
         Self {
             id: entry.id,
             name: entry.name,
-            icon: entry.icon,
+            icon,
             action: LauncherAction::Launch { exec: entry.exec },
+            source_image_url,
         }
     }
 
@@ -59,8 +74,9 @@ impl LauncherItem {
         Self {
             id: Uuid::new_v4(),
             name: "Update System".to_string(),
-            icon: None, // Will use default/fallback or we can specify specific one later
+            icon: None,
             action: LauncherAction::SystemUpdate,
+            source_image_url: None,
         }
     }
 
@@ -70,6 +86,7 @@ impl LauncherItem {
             name: "Shutdown".to_string(),
             icon: Some("assets/shutdown.svg".to_string()),
             action: LauncherAction::Shutdown,
+            source_image_url: None,
         }
     }
 
@@ -79,6 +96,7 @@ impl LauncherItem {
             name: "Suspend".to_string(),
             icon: Some("assets/suspend.svg".to_string()),
             action: LauncherAction::Suspend,
+            source_image_url: None,
         }
     }
 
@@ -88,6 +106,7 @@ impl LauncherItem {
             name: "Exit Launcher".to_string(),
             icon: Some("assets/exit.svg".to_string()),
             action: LauncherAction::Exit,
+            source_image_url: None,
         }
     }
 }

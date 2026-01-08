@@ -190,7 +190,7 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                 seen_app_names.insert(game.app_name.clone());
 
                 let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, None);
+                let entry = AppEntry::new(game.title, exec, game.art_cover);
                 let key = format!("{}:{}", entry.name, entry.exec);
                 if seen.insert(key) {
                     games.push(entry);
@@ -224,7 +224,7 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                 seen_app_names.insert(game.app_name.clone());
 
                 let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, None);
+                let entry = AppEntry::new(game.title, exec, game.art_cover);
                 let key = format!("{}:{}", entry.name, entry.exec);
                 if seen.insert(key) {
                     games.push(entry);
@@ -237,6 +237,7 @@ fn scan_heroic_games() -> Vec<AppEntry> {
         let generic_files = [
             root.join("sideload_cache.json"),
             root.join("store_cache").join("sideload_cache.json"),
+            root.join("sideload_apps").join("library.json"),
             root.join("config.json"),
             root.join("store").join("config.json"),
             root.join("library.json"),
@@ -267,7 +268,7 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                 seen_app_names.insert(game.app_name.clone());
 
                 let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, None);
+                let entry = AppEntry::new(game.title, exec, game.art_cover);
                 let key = format!("{}:{}", entry.name, entry.exec);
                 if seen.insert(key) {
                     games.push(entry);
@@ -312,7 +313,7 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                         seen_app_names.insert(game.app_name.clone());
 
                         let exec = heroic_exec(&game.store, &game.app_name);
-                        let entry = AppEntry::new(game.title, exec, None);
+                        let entry = AppEntry::new(game.title, exec, game.art_cover);
                         let key = format!("{}:{}", entry.name, entry.exec);
                         if seen.insert(key) {
                             games.push(entry);
@@ -356,7 +357,7 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                 seen_app_names.insert(game.app_name.clone());
 
                 let exec = heroic_exec(&game.store, &game.app_name);
-                let entry = AppEntry::new(game.title, exec, None);
+                let entry = AppEntry::new(game.title, exec, game.art_cover);
                 let key = format!("{}:{}", entry.name, entry.exec);
                 if seen.insert(key) {
                     games.push(entry);
@@ -413,6 +414,7 @@ fn heroic_exec(store: &str, app_name: &str) -> String {
         || store == "wine"
         || store == "native"
         || store == "proton"
+        || store == "sideload"
     {
         format!("xdg-open heroic://launch/{}", encoded)
     } else {
@@ -436,6 +438,7 @@ struct HeroicGame {
     app_name: String,
     title: String,
     store: String,
+    art_cover: Option<String>,
 }
 
 fn parse_heroic_library_json(contents: &str, store_hint: &str) -> Vec<HeroicGame> {
@@ -605,10 +608,18 @@ fn heroic_game_from_object(
         return None;
     }
 
+    // Extract cover art URL - prefer art_cover, fall back to art_square
+    let art_cover = obj
+        .get("art_cover")
+        .and_then(|v| v.as_str())
+        .or_else(|| obj.get("art_square").and_then(|v| v.as_str()))
+        .map(String::from);
+
     Some(HeroicGame {
         app_name: app_name.to_string(),
         title: title.to_string(),
         store: store.to_string(),
+        art_cover,
     })
 }
 
@@ -890,8 +901,40 @@ mod tests {
             "xdg-open heroic://launch/App2"
         );
         assert_eq!(
-            heroic_exec("legendary", "App3"),
-            "xdg-open heroic://launch/legendary/App3"
+            heroic_exec("sideload", "App3"),
+            "xdg-open heroic://launch/App3"
+        );
+        assert_eq!(
+            heroic_exec("legendary", "App4"),
+            "xdg-open heroic://launch/legendary/App4"
+        );
+    }
+
+    #[test]
+    fn test_parse_sideload_apps_library_with_art_cover() {
+        let contents = r#"
+        {
+            "games": [
+                {
+                    "runner": "sideload",
+                    "app_name": "testAppId",
+                    "title": "Robot Arena 2",
+                    "art_cover": "https://example.com/cover.png",
+                    "art_square": "https://example.com/square.png",
+                    "is_installed": true
+                }
+            ]
+        }
+        "#;
+
+        let games = parse_heroic_install_info_json(contents, "sideload");
+        assert_eq!(games.len(), 1);
+        assert_eq!(games[0].app_name, "testAppId");
+        assert_eq!(games[0].title, "Robot Arena 2");
+        assert_eq!(games[0].store, "sideload");
+        assert_eq!(
+            games[0].art_cover,
+            Some("https://example.com/cover.png".to_string())
         );
     }
 }

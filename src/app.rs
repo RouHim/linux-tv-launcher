@@ -15,6 +15,7 @@ use crate::image_cache::ImageCache;
 use crate::input::Action;
 use crate::launcher::launch_app;
 use crate::model::{AppEntry, Category, LauncherAction, LauncherItem};
+use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config};
 use crate::system_update::run_update;
@@ -34,6 +35,7 @@ pub struct Launcher {
     games_loaded: bool,
     // API Key should be loaded from config ideally, but hardcoding for this user session as requested
     sgdb_client: SteamGridDbClient,
+    searxng_client: SearxngClient,
     image_cache: Option<ImageCache>,
     scale_factor: f64,
     window_width: f32,
@@ -67,6 +69,7 @@ impl Launcher {
         let config_path = config_path().ok().map(|path| path.display().to_string());
 
         let sgdb_client = SteamGridDbClient::new("276bca336e815a4e2dd2250ea674eb31".to_string());
+        let searxng_client = SearxngClient::new();
         let image_cache = ImageCache::new().ok();
 
         let mut launcher = Self {
@@ -87,6 +90,7 @@ impl Launcher {
             apps_loaded: false,
             games_loaded: false,
             sgdb_client,
+            searxng_client,
             image_cache,
             scale_factor: 1.0,
             window_width: 1280.0,
@@ -146,7 +150,8 @@ impl Launcher {
                 if let Some(cache) = &self.image_cache {
                     let target_width = (GAME_POSTER_WIDTH as f64 * self.scale_factor) as u32;
                     let target_height = (GAME_POSTER_HEIGHT as f64 * self.scale_factor) as u32;
-                    let client_template = self.sgdb_client.clone();
+                    let sgdb_client_template = self.sgdb_client.clone();
+                    let searxng_client_template = self.searxng_client.clone();
                     let cache_dir_template = cache.cache_dir.clone();
 
                     tasks = self
@@ -155,17 +160,21 @@ impl Launcher {
                         .map(|game| {
                             let game_id = game.id;
                             let game_name = game.name.clone();
-                            let client = client_template.clone();
+                            let source_image_url = game.source_image_url.clone();
+                            let sgdb_client = sgdb_client_template.clone();
+                            let searxng_client = searxng_client_template.clone();
                             let cache_dir = cache_dir_template.clone();
 
                             Task::perform(
                                 async move {
                                     tokio::task::spawn_blocking(move || {
                                         fetch_game_image(
-                                            client,
+                                            sgdb_client,
+                                            searxng_client,
                                             cache_dir,
                                             game_id,
                                             game_name,
+                                            source_image_url,
                                             target_width,
                                             target_height,
                                         )
@@ -819,10 +828,12 @@ impl Launcher {
 }
 
 fn fetch_game_image(
-    client: SteamGridDbClient,
+    sgdb_client: SteamGridDbClient,
+    searxng_client: SearxngClient,
     cache_dir: PathBuf,
     game_id: Uuid,
     game_name: String,
+    source_image_url: Option<String>,
     width: u32,
     height: u32,
 ) -> anyhow::Result<Option<(Uuid, PathBuf)>> {
@@ -830,54 +841,122 @@ fn fetch_game_image(
         cache_dir: cache_dir.clone(),
     };
 
-    let path = if let Some(path) = cache.find_existing_image(&game_name) {
+    // 1. Check cache first
+    if let Some(path) = cache.find_existing_image(&game_name) {
         info!("Cache hit for '{}': {:?}", game_name, path);
-        path
-    } else {
-        info!("Fetching image for '{}' from SteamGridDB...", game_name);
-        match client.search_game(&game_name) {
-            Ok(Some(sgdb_id)) => {
-                info!("Found SteamGridDB ID for '{}': {}", game_name, sgdb_id);
-                match client.get_images_for_game(sgdb_id) {
-                    Ok(images) => {
-                        if let Some(first_image) = images.first() {
-                            info!("Downloading image for '{}': {}", game_name, first_image.url);
-                            match cache.save_image(&game_name, &first_image.url, width, height) {
-                                Ok(path) => {
-                                    info!(
-                                        "Successfully saved image for '{}' to {:?}",
-                                        game_name, path
-                                    );
-                                    path
-                                }
-                                Err(e) => {
-                                    error!("Failed to save image for '{}': {}", game_name, e);
-                                    return Ok(None);
-                                }
-                            }
-                        } else {
-                            warn!("No images found for '{}' (ID: {})", game_name, sgdb_id);
-                            return Ok(None);
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to get images for '{}': {}", game_name, e);
-                        return Ok(None);
-                    }
-                }
-            }
-            Ok(None) => {
-                warn!("Game not found on SteamGridDB: '{}'", game_name);
-                return Ok(None);
+        return Ok(Some((game_id, path)));
+    }
+
+    // 2. Try source image URL (from Heroic) if available
+    if let Some(url) = &source_image_url {
+        info!(
+            "Trying Heroic image URL for '{}': {}",
+            game_name,
+            url
+        );
+        match cache.save_image(&game_name, url, width, height) {
+            Ok(path) => {
+                info!(
+                    "Successfully saved Heroic image for '{}' to {:?}",
+                    game_name, path
+                );
+                return Ok(Some((game_id, path)));
             }
             Err(e) => {
-                error!("Failed to search for game '{}': {}", game_name, e);
-                return Ok(None);
+                warn!(
+                    "Failed to download Heroic image for '{}': {}, trying SteamGridDB...",
+                    game_name, e
+                );
             }
         }
-    };
+    }
 
-    Ok(Some((game_id, path)))
+    // 3. Try SteamGridDB (primary API source)
+    info!("Fetching image for '{}' from SteamGridDB...", game_name);
+    match sgdb_client.search_game(&game_name) {
+        Ok(Some(sgdb_id)) => {
+            info!("Found SteamGridDB ID for '{}': {}", game_name, sgdb_id);
+            match sgdb_client.get_images_for_game(sgdb_id) {
+                Ok(images) => {
+                    if let Some(first_image) = images.first() {
+                        info!("Downloading image for '{}': {}", game_name, first_image.url);
+                        match cache.save_image(&game_name, &first_image.url, width, height) {
+                            Ok(path) => {
+                                info!(
+                                    "Successfully saved SteamGridDB image for '{}' to {:?}",
+                                    game_name, path
+                                );
+                                return Ok(Some((game_id, path)));
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "Failed to save SteamGridDB image for '{}': {}, trying SearXNG...",
+                                    game_name, e
+                                );
+                            }
+                        }
+                    } else {
+                        warn!(
+                            "No images found on SteamGridDB for '{}' (ID: {}), trying SearXNG...",
+                            game_name, sgdb_id
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to get SteamGridDB images for '{}': {}, trying SearXNG...",
+                        game_name, e
+                    );
+                }
+            }
+        }
+        Ok(None) => {
+            warn!(
+                "Game not found on SteamGridDB: '{}', trying SearXNG...",
+                game_name
+            );
+        }
+        Err(e) => {
+            warn!(
+                "Failed to search SteamGridDB for '{}': {}, trying SearXNG...",
+                game_name, e
+            );
+        }
+    }
+
+    // 4. Fall back to SearXNG image search
+    let search_query = format!("{} game cover", game_name);
+    info!("Searching SearXNG for '{}' cover art...", game_name);
+    match searxng_client.search_image(&search_query) {
+        Ok(Some(url)) => {
+            info!("Found SearXNG image for '{}': {}", game_name, url);
+            match cache.save_image(&game_name, &url, width, height) {
+                Ok(path) => {
+                    info!(
+                        "Successfully saved SearXNG image for '{}' to {:?}",
+                        game_name, path
+                    );
+                    return Ok(Some((game_id, path)));
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to save SearXNG image for '{}': {}",
+                        game_name, e
+                    );
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("No images found on SearXNG for '{}'", game_name);
+        }
+        Err(e) => {
+            error!("Failed to search SearXNG for '{}': {}", game_name, e);
+        }
+    }
+
+    // No image found from any source
+    warn!("Could not find any cover art for '{}'", game_name);
+    Ok(None)
 }
 
 #[cfg(test)]
