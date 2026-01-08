@@ -42,6 +42,7 @@ pub fn gamepad_subscription() -> Subscription<Action> {
                             EventType::ButtonPressed(Button::RightTrigger2, _) => {
                                 Some(Action::NextCategory)
                             }
+                            EventType::ButtonPressed(Button::Select, _) => Some(Action::ShowHelp),
                             EventType::AxisChanged(gilrs::Axis::LeftStickX, value, _) => {
                                 let new_dir = if value <= -deadzone {
                                     -1

@@ -11,4 +11,5 @@ pub enum Action {
     ContextMenu,
     AddApp,
     Quit,
+    ShowHelp,
 }

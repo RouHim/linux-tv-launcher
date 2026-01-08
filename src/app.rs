@@ -57,6 +57,8 @@ pub struct Launcher {
     app_picker_scroll_offset: f32,
     app_picker_viewport_height: f32,
     window_id: Option<window::Id>,
+    // Help modal state
+    help_modal_open: bool,
 }
 
 const GAME_POSTER_WIDTH: f32 = 200.0;
@@ -133,6 +135,7 @@ impl Launcher {
             app_picker_scroll_offset: 0.0,
             app_picker_viewport_height: 0.0,
             window_id: None,
+            help_modal_open: false,
         };
         launcher.update_columns();
 
@@ -383,6 +386,11 @@ impl Launcher {
             column = column.push(status);
         }
 
+        // Add controls hint when no modal is open
+        if !self.context_menu_open && !self.app_picker_open && !self.help_modal_open {
+            column = column.push(self.render_controls_hint());
+        }
+
         let main_content = Container::new(column)
             .width(Length::Fill)
             .height(Length::Fill)
@@ -404,6 +412,11 @@ impl Launcher {
             Stack::new()
                 .push(main_content)
                 .push(self.render_app_picker())
+                .into()
+        } else if self.help_modal_open {
+            Stack::new()
+                .push(main_content)
+                .push(self.render_help_modal())
                 .into()
         } else {
             main_content
@@ -658,6 +671,7 @@ impl Launcher {
                     Key::Character("+") | Key::Character("a") => {
                         Some(Message::Input(Action::AddApp))
                     }
+                    Key::Character("-") => Some(Message::Input(Action::ShowHelp)),
                     _ => None,
                 },
                 _ => None,
@@ -672,6 +686,10 @@ impl Launcher {
             std::process::exit(0);
         }
 
+        if self.help_modal_open {
+            return self.handle_help_modal_navigation(action);
+        }
+
         if self.context_menu_open {
             return self.handle_context_menu_navigation(action);
         }
@@ -681,6 +699,10 @@ impl Launcher {
         }
 
         match action {
+            Action::ShowHelp => {
+                self.help_modal_open = true;
+                return Task::none();
+            }
             Action::AddApp => {
                 if self.category == Category::Apps {
                     return self.update(Message::OpenAppPicker);
@@ -819,6 +841,16 @@ impl Launcher {
                 self.context_menu_open = false;
             }
             _ => {}
+        }
+        Task::none()
+    }
+
+    fn handle_help_modal_navigation(&mut self, action: Action) -> Task<Message> {
+        match action {
+            Action::Back | Action::ShowHelp => {
+                self.help_modal_open = false;
+            }
+            _ => {} // Ignore other inputs while modal is open
         }
         Task::none()
     }
@@ -1324,6 +1356,168 @@ impl Launcher {
             })
             .into(),
         )
+    }
+
+    fn render_controls_hint(&self) -> Element<'_, Message> {
+        let hint = Text::new("Press  −  for controls")
+            .font(SANSATION)
+            .size(14)
+            .color(Color::from_rgb(0.5, 0.5, 0.5));
+
+        Container::new(hint)
+            .width(Length::Fill)
+            .center_x(Length::Fill)
+            .padding(10)
+            .into()
+    }
+
+    fn render_help_modal(&self) -> Element<'_, Message> {
+        let title = Text::new("Controller Bindings")
+            .font(SANSATION)
+            .size(28)
+            .color(Color::WHITE);
+
+        let title_container = Container::new(title)
+            .padding(20)
+            .width(Length::Fill)
+            .center_x(Length::Fill);
+
+        // Gamepad bindings
+        let gamepad_bindings = vec![
+            ("A / South", "Select / Confirm"),
+            ("B / East", "Back / Cancel"),
+            ("X / West", "Context Menu"),
+            ("D-Pad / Left Stick", "Navigate"),
+            ("LB / LT", "Previous Category"),
+            ("RB / RT", "Next Category"),
+            ("− / Select", "Show/Hide Controls"),
+        ];
+
+        // Keyboard bindings
+        let keyboard_bindings = vec![
+            ("Arrow Keys", "Navigate"),
+            ("Enter", "Select / Confirm"),
+            ("Escape", "Back / Cancel"),
+            ("Tab", "Next Category"),
+            ("C", "Context Menu"),
+            ("+ / A", "Add App (in Apps)"),
+            ("−", "Show/Hide Controls"),
+            ("F4", "Quit Launcher"),
+        ];
+
+        let mut content_column = Column::new().spacing(8);
+
+        // Gamepad section header
+        content_column = content_column.push(
+            Text::new("Gamepad")
+                .font(SANSATION)
+                .size(18)
+                .color(Color::from_rgb(0.8, 0.8, 0.8)),
+        );
+
+        // Gamepad bindings
+        for (button, action) in gamepad_bindings {
+            let row = Row::new()
+                .push(
+                    Container::new(
+                        Text::new(button)
+                            .font(SANSATION)
+                            .size(16)
+                            .color(Color::from_rgb(0.9, 0.9, 0.9)),
+                    )
+                    .width(Length::Fixed(200.0)),
+                )
+                .push(
+                    Text::new(action)
+                        .font(SANSATION)
+                        .size(16)
+                        .color(Color::from_rgb(0.7, 0.7, 0.7)),
+                )
+                .spacing(20);
+            content_column = content_column.push(row);
+        }
+
+        // Spacer
+        content_column =
+            content_column.push(Container::new(Text::new("")).height(Length::Fixed(16.0)));
+
+        // Keyboard section header
+        content_column = content_column.push(
+            Text::new("Keyboard")
+                .font(SANSATION)
+                .size(18)
+                .color(Color::from_rgb(0.8, 0.8, 0.8)),
+        );
+
+        // Keyboard bindings
+        for (key, action) in keyboard_bindings {
+            let row = Row::new()
+                .push(
+                    Container::new(
+                        Text::new(key)
+                            .font(SANSATION)
+                            .size(16)
+                            .color(Color::from_rgb(0.9, 0.9, 0.9)),
+                    )
+                    .width(Length::Fixed(200.0)),
+                )
+                .push(
+                    Text::new(action)
+                        .font(SANSATION)
+                        .size(16)
+                        .color(Color::from_rgb(0.7, 0.7, 0.7)),
+                )
+                .spacing(20);
+            content_column = content_column.push(row);
+        }
+
+        let scrollable_content = Scrollable::new(content_column)
+            .width(Length::Fill)
+            .height(Length::Fill);
+
+        // Hint at bottom
+        let hint = Text::new("Press B or − to close")
+            .font(SANSATION)
+            .size(14)
+            .color(Color::from_rgb(0.6, 0.6, 0.6));
+
+        let hint_container = Container::new(hint)
+            .padding(10)
+            .width(Length::Fill)
+            .center_x(Length::Fill);
+
+        let modal_column = Column::new()
+            .push(title_container)
+            .push(scrollable_content)
+            .push(hint_container)
+            .spacing(10);
+
+        // Modal box
+        let modal_box = Container::new(modal_column)
+            .width(Length::Fixed(500.0))
+            .height(Length::FillPortion(70))
+            .padding(20)
+            .style(|_| iced::widget::container::Style {
+                background: Some(Color::from_rgb(0.1, 0.1, 0.1).into()),
+                border: iced::Border {
+                    color: Color::WHITE,
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            });
+
+        // Overlay container with semi-transparent background
+        Container::new(modal_box)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(|_| iced::widget::container::Style {
+                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.8).into()),
+                ..Default::default()
+            })
+            .into()
     }
 
     fn sort_items(items: &mut [LauncherItem]) {
