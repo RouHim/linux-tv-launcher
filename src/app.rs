@@ -617,13 +617,6 @@ impl Launcher {
 
         Column::new()
             .push(tabs)
-            .push(
-                Text::new("Tab/Start to switch categories")
-                    .font(SANSATION)
-                    .size(14)
-                    .color(Color::from_rgb(0.6, 0.6, 0.6)),
-            )
-            .spacing(6)
             .into()
     }
 
