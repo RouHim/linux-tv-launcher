@@ -8,5 +8,6 @@ pub enum Action {
     Back,
     NextCategory,
     ContextMenu,
+    AddApp,
     Quit,
 }

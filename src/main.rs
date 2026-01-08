@@ -2,6 +2,7 @@ use tracing_subscriber::EnvFilter;
 
 mod app;
 mod assets;
+mod desktop_apps;
 mod game_sources;
 mod gamepad;
 mod image_cache;
@@ -13,7 +14,7 @@ mod steamgriddb;
 mod storage;
 mod system_update;
 
-pub use app::Launcher;
+use app::Launcher;
 
 fn main() -> iced::Result {
     let mut env_filter = EnvFilter::from_default_env();

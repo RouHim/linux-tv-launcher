@@ -1,5 +1,7 @@
 use iced::alignment::Horizontal;
 use iced::keyboard::{self, key::Named, Key};
+use iced::widget::scrollable::{AbsoluteOffset, Viewport};
+use iced::widget::{operation, Id};
 use iced::{
     widget::{Column, Container, Grid, Image, Row, Scrollable, Stack, Svg, Text},
     Color, ContentFit, Element, Event, Length, Subscription, Task,
@@ -9,6 +11,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::assets::get_default_icon;
+use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
 use crate::game_sources::scan_games;
 use crate::gamepad::gamepad_subscription;
 use crate::image_cache::ImageCache;
@@ -41,6 +44,14 @@ pub struct Launcher {
     window_width: f32,
     context_menu_open: bool,
     context_menu_index: usize,
+    // App picker modal state
+    app_picker_open: bool,
+    available_apps: Vec<DesktopApp>,
+    app_picker_selected_index: usize,
+    app_picker_cols: usize,
+    app_picker_scrollable_id: Id,
+    app_picker_scroll_offset: f32,
+    app_picker_viewport_height: f32,
 }
 
 const GAME_POSTER_WIDTH: f32 = 200.0;
@@ -62,11 +73,17 @@ pub enum Message {
     Input(Action),
     ScaleFactorChanged(f64),
     WindowResized(f32, f32),
+    // App picker messages
+    OpenAppPicker,
+    AvailableAppsLoaded(Vec<DesktopApp>),
+    AddSelectedApp,
+    CloseAppPicker,
+    AppPickerScrolled(Viewport),
     None,
 }
 
 impl Launcher {
-// ... existing new, title, update methods ...
+    // ... existing new, title, update methods ...
     pub fn new() -> (Self, Task<Message>) {
         let default_icon = get_default_icon().map(iced::widget::svg::Handle::from_memory);
         let config_path = config_path().ok().map(|path| path.display().to_string());
@@ -99,6 +116,14 @@ impl Launcher {
             window_width: 1280.0,
             context_menu_open: false,
             context_menu_index: 0,
+            // App picker initial state
+            app_picker_open: false,
+            available_apps: Vec::new(),
+            app_picker_selected_index: 0,
+            app_picker_cols: 6,
+            app_picker_scrollable_id: Id::unique(),
+            app_picker_scroll_offset: 0.0,
+            app_picker_viewport_height: 0.0,
         };
         launcher.update_columns();
 
@@ -211,8 +236,100 @@ impl Launcher {
                 self.update_columns();
                 Task::none()
             }
+            Message::OpenAppPicker => {
+                self.app_picker_open = true;
+                self.app_picker_selected_index = 0;
+                self.available_apps.clear();
+                // Scan for desktop apps asynchronously
+                Task::perform(async { scan_desktop_apps() }, Message::AvailableAppsLoaded)
+            }
+            Message::AvailableAppsLoaded(apps) => {
+                // Filter out apps already added (by exec command)
+                let existing_execs: std::collections::HashSet<_> = self
+                    .apps
+                    .iter()
+                    .filter_map(|item| match &item.action {
+                        LauncherAction::Launch { exec } => Some(exec.clone()),
+                        _ => None,
+                    })
+                    .collect();
+
+                self.available_apps = apps
+                    .into_iter()
+                    .filter(|app| !existing_execs.contains(&app.exec))
+                    .collect();
+                self.app_picker_selected_index = 0;
+                self.update_app_picker_cols();
+                self.snap_to_picker_selection()
+            }
+            Message::AddSelectedApp => {
+                if let Some(selected_app) = self
+                    .available_apps
+                    .get(self.app_picker_selected_index)
+                    .cloned()
+                {
+                    let icon_path = selected_app
+                        .icon_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string());
+
+                    let new_entry = AppEntry::new(
+                        selected_app.name.clone(),
+                        selected_app.exec.clone(),
+                        icon_path,
+                    );
+
+                    let new_item = LauncherItem::from_app_entry(new_entry);
+                    self.apps.push(new_item);
+                    Self::sort_items(&mut self.apps);
+                    self.clamp_selected_index();
+
+                    // Save config
+                    let apps_to_save: Vec<AppEntry> = self
+                        .apps
+                        .iter()
+                        .filter_map(|item| match &item.action {
+                            LauncherAction::Launch { exec } => Some(AppEntry {
+                                id: item.id,
+                                name: item.name.clone(),
+                                exec: exec.clone(),
+                                icon: item.icon.clone(),
+                            }),
+                            _ => None,
+                        })
+                        .collect();
+
+                    match save_config(&apps_to_save) {
+                        Ok(_) => info!("Added app: {}", selected_app.name),
+                        Err(err) => warn!("Failed to save config after adding app: {}", err),
+                    }
+
+                    // Remove from available apps and close picker
+                    self.available_apps.remove(self.app_picker_selected_index);
+                    self.app_picker_open = false;
+                    self.app_picker_selected_index = 0;
+                }
+                Task::none()
+            }
+            Message::CloseAppPicker => {
+                self.app_picker_open = false;
+                self.app_picker_selected_index = 0;
+                Task::none()
+            }
+            Message::AppPickerScrolled(viewport) => {
+                self.app_picker_scroll_offset = viewport.absolute_offset().y;
+                self.app_picker_viewport_height = viewport.bounds().height;
+                Task::none()
+            }
             Message::None => Task::none(),
         }
+    }
+
+    fn update_app_picker_cols(&mut self) {
+        let available_width = self.window_width * 0.8 - 80.0; // 80% width minus padding
+        let item_space = ICON_ITEM_WIDTH + 10.0;
+        let cols = (available_width / item_space).floor() as usize;
+        self.app_picker_cols = cols.max(1);
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -240,6 +357,11 @@ impl Launcher {
             Stack::new()
                 .push(main_content)
                 .push(self.render_context_menu())
+                .into()
+        } else if self.app_picker_open {
+            Stack::new()
+                .push(main_content)
+                .push(self.render_app_picker())
                 .into()
         } else {
             main_content
@@ -309,7 +431,156 @@ impl Launcher {
             })
             .into()
     }
-// ... subscription, handle_navigation, handle_context_menu_navigation ...
+
+    fn render_app_picker(&self) -> Element<'_, Message> {
+        let title = Text::new("Add Application")
+            .font(SANSATION)
+            .size(28)
+            .color(Color::WHITE);
+
+        let title_container = Container::new(title)
+            .padding(20)
+            .width(Length::Fill)
+            .center_x(Length::Fill);
+
+        let content: Element<'_, Message> = if self.available_apps.is_empty() {
+            Container::new(
+                Text::new("No applications found")
+                    .font(SANSATION)
+                    .size(18)
+                    .color(Color::from_rgb(0.7, 0.7, 0.7)),
+            )
+            .padding(40)
+            .center_x(Length::Fill)
+            .into()
+        } else {
+            let mut grid = Grid::new()
+                .columns(self.app_picker_cols)
+                .spacing(10)
+                .height(Length::Shrink);
+
+            for (i, app) in self.available_apps.iter().enumerate() {
+                let is_selected = i == self.app_picker_selected_index;
+                grid = grid.push(self.render_picker_item(app, is_selected));
+            }
+
+            Scrollable::new(grid)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .id(self.app_picker_scrollable_id.clone())
+                .on_scroll(Message::AppPickerScrolled)
+                .into()
+        };
+
+        let hint = Text::new("Enter: Add | Escape: Close")
+            .font(SANSATION)
+            .size(14)
+            .color(Color::from_rgb(0.6, 0.6, 0.6));
+
+        let hint_container = Container::new(hint)
+            .padding(10)
+            .width(Length::Fill)
+            .center_x(Length::Fill);
+
+        let picker_column = Column::new()
+            .push(title_container)
+            .push(content)
+            .push(hint_container)
+            .spacing(10);
+
+        let picker_box = Container::new(picker_column)
+            .width(Length::FillPortion(80))
+            .height(Length::FillPortion(80))
+            .padding(20)
+            .style(|_| iced::widget::container::Style {
+                background: Some(Color::from_rgb(0.1, 0.1, 0.1).into()),
+                border: iced::Border {
+                    color: Color::WHITE,
+                    width: 1.0,
+                    radius: 10.0.into(),
+                },
+                ..Default::default()
+            });
+
+        Container::new(picker_box)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(|_| iced::widget::container::Style {
+                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.8).into()),
+                ..Default::default()
+            })
+            .into()
+    }
+
+    fn render_picker_item(&self, app: &DesktopApp, is_selected: bool) -> Element<'_, Message> {
+        let icon_widget: Element<Message> = if let Some(icon_path) = &app.icon_path {
+            let path_str = icon_path.to_string_lossy();
+            if path_str.ends_with(".svg") {
+                Svg::from_path(icon_path.clone())
+                    .width(Length::Fixed(ICON_SIZE))
+                    .height(Length::Fixed(ICON_SIZE))
+                    .into()
+            } else {
+                Image::new(icon_path.clone())
+                    .width(Length::Fixed(ICON_SIZE))
+                    .height(Length::Fixed(ICON_SIZE))
+                    .content_fit(ContentFit::Contain)
+                    .into()
+            }
+        } else if let Some(handle) = self.default_icon_handle.clone() {
+            Svg::new(handle)
+                .width(Length::Fixed(ICON_SIZE))
+                .height(Length::Fixed(ICON_SIZE))
+                .into()
+        } else {
+            Container::new(Text::new("?").font(SANSATION).size(48).color(Color::WHITE))
+                .width(Length::Fixed(ICON_SIZE))
+                .height(Length::Fixed(ICON_SIZE))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .into()
+        };
+
+        let icon_container = Container::new(icon_widget).padding(6);
+
+        let label = Text::new(app.name.clone())
+            .font(SANSATION)
+            .width(Length::Fixed(ICON_ITEM_WIDTH))
+            .align_x(Horizontal::Center)
+            .color(Color::WHITE)
+            .size(12);
+
+        let content = Column::new()
+            .push(icon_container)
+            .push(label)
+            .align_x(iced::Alignment::Center)
+            .spacing(5);
+
+        Container::new(content)
+            .width(Length::Fixed(ICON_ITEM_WIDTH))
+            .height(Length::Fixed(ICON_ITEM_HEIGHT))
+            .padding(6)
+            .align_x(Horizontal::Center)
+            .align_y(iced::alignment::Vertical::Center)
+            .style(move |_theme| {
+                if is_selected {
+                    iced::widget::container::Style {
+                        border: iced::Border {
+                            color: Color::from_rgb(0.2, 0.4, 0.8),
+                            width: 2.0,
+                            radius: 4.0.into(),
+                        },
+                        background: Some(Color::from_rgba(0.2, 0.4, 0.8, 0.3).into()),
+                        ..Default::default()
+                    }
+                } else {
+                    iced::widget::container::Style::default()
+                }
+            })
+            .into()
+    }
 
     pub fn subscription(&self) -> Subscription<Message> {
         let gamepad = gamepad_subscription().map(Message::Input);
@@ -340,6 +611,9 @@ impl Launcher {
                     Key::Named(Named::Tab) => Some(Message::Input(Action::NextCategory)),
                     Key::Named(Named::F4) => Some(Message::Input(Action::Quit)),
                     Key::Character("c") => Some(Message::Input(Action::ContextMenu)),
+                    Key::Character("+") | Key::Character("a") => {
+                        Some(Message::Input(Action::AddApp))
+                    }
                     _ => None,
                 },
                 _ => None,
@@ -358,7 +632,17 @@ impl Launcher {
             return self.handle_context_menu_navigation(action);
         }
 
+        if self.app_picker_open {
+            return self.handle_app_picker_navigation(action);
+        }
+
         match action {
+            Action::AddApp => {
+                if self.category == Category::Apps {
+                    return self.update(Message::OpenAppPicker);
+                }
+                return Task::none();
+            }
             Action::ContextMenu => {
                 if !self.active_items().is_empty() {
                     self.context_menu_open = true;
@@ -490,6 +774,91 @@ impl Launcher {
         Task::none()
     }
 
+    fn snap_to_picker_selection(&self) -> Task<Message> {
+        let row = self.app_picker_selected_index / self.app_picker_cols;
+        let item_height_with_spacing = ICON_ITEM_HEIGHT + 10.0;
+
+        let item_top = row as f32 * item_height_with_spacing;
+        let item_bottom = item_top + ICON_ITEM_HEIGHT;
+
+        let viewport_top = self.app_picker_scroll_offset;
+        let viewport_height = if self.app_picker_viewport_height > 0.0 {
+            self.app_picker_viewport_height
+        } else {
+            // Fallback estimate if viewport not yet reported (e.g. initial render)
+            600.0
+        };
+        let viewport_bottom = viewport_top + viewport_height;
+
+        let target_y = if item_top < viewport_top {
+            // Scroll Up
+            Some(item_top)
+        } else if item_bottom > viewport_bottom {
+            // Scroll Down
+            Some(item_bottom - viewport_height + 10.0) // +10 for padding
+        } else {
+            // Already visible
+            None
+        };
+
+        if let Some(y) = target_y {
+            operation::scroll_to(
+                self.app_picker_scrollable_id.clone(),
+                AbsoluteOffset {
+                    x: 0.0,
+                    y: y.max(0.0),
+                },
+            )
+        } else {
+            Task::none()
+        }
+    }
+
+    fn handle_app_picker_navigation(&mut self, action: Action) -> Task<Message> {
+        let list_len = self.available_apps.len();
+        if list_len == 0 {
+            // No apps available, just handle close
+            match action {
+                Action::Back | Action::AddApp => {
+                    return self.update(Message::CloseAppPicker);
+                }
+                _ => {}
+            }
+            return Task::none();
+        }
+
+        match action {
+            Action::Up => {
+                if self.app_picker_selected_index >= self.app_picker_cols {
+                    self.app_picker_selected_index -= self.app_picker_cols;
+                }
+            }
+            Action::Down => {
+                if self.app_picker_selected_index + self.app_picker_cols < list_len {
+                    self.app_picker_selected_index += self.app_picker_cols;
+                }
+            }
+            Action::Left => {
+                if self.app_picker_selected_index > 0 {
+                    self.app_picker_selected_index -= 1;
+                }
+            }
+            Action::Right => {
+                if self.app_picker_selected_index + 1 < list_len {
+                    self.app_picker_selected_index += 1;
+                }
+            }
+            Action::Select => {
+                return self.update(Message::AddSelectedApp);
+            }
+            Action::Back | Action::AddApp => {
+                return self.update(Message::CloseAppPicker);
+            }
+            _ => {}
+        }
+        self.snap_to_picker_selection()
+    }
+
     fn activate_selected(&mut self) {
         let action = self
             .active_items()
@@ -548,7 +917,7 @@ impl Launcher {
     fn update_columns(&mut self) {
         let (item_width, _item_height, _image_width, _image_height) = match self.category {
             Category::Games => (
-                GAME_POSTER_WIDTH + 16.0, // Extra width for padding/border
+                GAME_POSTER_WIDTH + 16.0,   // Extra width for padding/border
                 GAME_POSTER_HEIGHT + 140.0, // Increased for text wrapping
                 GAME_POSTER_WIDTH,
                 GAME_POSTER_HEIGHT,
@@ -587,14 +956,15 @@ impl Launcher {
         let mut tabs = Row::new().spacing(12);
         for category in Category::ALL {
             let is_selected = category == self.category;
-            let label = Text::new(category.title())
-                .font(SANSATION)
-                .size(22)
-                .color(if is_selected {
-                    Color::WHITE
-                } else {
-                    Color::from_rgb(0.7, 0.7, 0.7)
-                });
+            let label =
+                Text::new(category.title())
+                    .font(SANSATION)
+                    .size(22)
+                    .color(if is_selected {
+                        Color::WHITE
+                    } else {
+                        Color::from_rgb(0.7, 0.7, 0.7)
+                    });
 
             let tab = Container::new(label).padding(8).style(move |_theme| {
                 if is_selected {
@@ -638,7 +1008,11 @@ impl Launcher {
             Category::System => {
                 if self.system_items.is_empty() {
                     Column::new()
-                        .push(Text::new("No system actions available.").font(SANSATION).color(Color::WHITE))
+                        .push(
+                            Text::new("No system actions available.")
+                                .font(SANSATION)
+                                .color(Color::WHITE),
+                        )
                         .align_x(iced::Alignment::Center)
                         .into()
                 } else {
@@ -718,18 +1092,17 @@ impl Launcher {
     ) -> Element<'_, Message> {
         let icon_widget: Element<Message> = if let Some(icon_path) = &item.icon {
             // Check for embedded assets first
-            let embedded_handle = match icon_path.as_str() {
-                "assets/shutdown.svg" => {
-                    crate::assets::get_shutdown_icon().map(iced::widget::svg::Handle::from_memory)
-                }
-                "assets/suspend.svg" => {
-                    crate::assets::get_suspend_icon().map(iced::widget::svg::Handle::from_memory)
-                }
-                "assets/exit.svg" => {
-                    crate::assets::get_exit_icon().map(iced::widget::svg::Handle::from_memory)
-                }
-                _ => None,
-            };
+            let embedded_handle =
+                match icon_path.as_str() {
+                    "assets/shutdown.svg" => crate::assets::get_shutdown_icon()
+                        .map(iced::widget::svg::Handle::from_memory),
+                    "assets/suspend.svg" => crate::assets::get_suspend_icon()
+                        .map(iced::widget::svg::Handle::from_memory),
+                    "assets/exit.svg" => {
+                        crate::assets::get_exit_icon().map(iced::widget::svg::Handle::from_memory)
+                    }
+                    _ => None,
+                };
 
             if let Some(handle) = embedded_handle {
                 Svg::new(handle)
@@ -762,8 +1135,7 @@ impl Launcher {
                 .into()
         };
 
-        let icon_container = Container::new(icon_widget)
-            .padding(6);
+        let icon_container = Container::new(icon_widget).padding(6);
 
         let text = Text::new(item.name.clone());
 
@@ -806,14 +1178,18 @@ impl Launcher {
     fn render_status(&self) -> Option<Element<'_, Message>> {
         let status = self.status_message.as_ref()?;
         Some(
-            Container::new(Text::new(status).font(SANSATION).color(Color::from_rgb(0.9, 0.8, 0.4)))
-                .padding(8)
-                .style(|_theme| iced::widget::container::Style {
-                    background: Some(Color::from_rgb(0.12, 0.12, 0.12).into()),
-                    text_color: Some(Color::WHITE),
-                    ..Default::default()
-                })
-                .into(),
+            Container::new(
+                Text::new(status)
+                    .font(SANSATION)
+                    .color(Color::from_rgb(0.9, 0.8, 0.4)),
+            )
+            .padding(8)
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(Color::from_rgb(0.12, 0.12, 0.12).into()),
+                text_color: Some(Color::WHITE),
+                ..Default::default()
+            })
+            .into(),
         )
     }
 
@@ -830,6 +1206,7 @@ impl Launcher {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn fetch_game_image(
     sgdb_client: SteamGridDbClient,
     searxng_client: SearxngClient,
@@ -852,11 +1229,7 @@ fn fetch_game_image(
 
     // 2. Try source image URL (from Heroic) if available
     if let Some(url) = &source_image_url {
-        info!(
-            "Trying Heroic image URL for '{}': {}",
-            game_name,
-            url
-        );
+        info!("Trying Heroic image URL for '{}': {}", game_name, url);
         match cache.save_image(&game_name, url, width, height) {
             Ok(path) => {
                 info!(
@@ -942,10 +1315,7 @@ fn fetch_game_image(
                     return Ok(Some((game_id, path)));
                 }
                 Err(e) => {
-                    error!(
-                        "Failed to save SearXNG image for '{}': {}",
-                        game_name, e
-                    );
+                    error!("Failed to save SearXNG image for '{}': {}", game_name, e);
                 }
             }
         }
