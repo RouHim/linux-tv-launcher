@@ -9,8 +9,8 @@ use iced::{
 };
 use rayon::prelude::*;
 use std::path::PathBuf;
-use uuid::Uuid;
 use urlencoding::decode;
+use uuid::Uuid;
 
 use crate::assets::get_default_icon;
 use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
@@ -26,7 +26,33 @@ use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config};
 use crate::system_update::run_update;
 use tracing::{error, info, warn};
-use urlencoding;
+
+struct AppPickerState {
+    selected_index: usize,
+    cols: usize,
+    scrollable_id: Id,
+    scroll_offset: f32,
+    viewport_height: f32,
+}
+
+impl AppPickerState {
+    fn new() -> Self {
+        Self {
+            selected_index: 0,
+            cols: 6,
+            scrollable_id: Id::unique(),
+            scroll_offset: 0.0,
+            viewport_height: 0.0,
+        }
+    }
+}
+
+enum ModalState {
+    None,
+    ContextMenu { index: usize },
+    AppPicker(AppPickerState),
+    Help,
+}
 
 pub struct Launcher {
     apps: Vec<LauncherItem>,
@@ -46,19 +72,10 @@ pub struct Launcher {
     image_cache: Option<ImageCache>,
     scale_factor: f64,
     window_width: f32,
-    context_menu_open: bool,
-    context_menu_index: usize,
-    // App picker modal state
-    app_picker_open: bool,
+    modal: ModalState,
+    // App picker data
     available_apps: Vec<DesktopApp>,
-    app_picker_selected_index: usize,
-    app_picker_cols: usize,
-    app_picker_scrollable_id: Id,
-    app_picker_scroll_offset: f32,
-    app_picker_viewport_height: f32,
     window_id: Option<window::Id>,
-    // Help modal state
-    help_modal_open: bool,
     // Game running state - disables input subscriptions
     game_running: bool,
 }
@@ -73,6 +90,34 @@ const ICON_SIZE: f32 = 128.0;
 const SANSATION: iced::Font = iced::Font::with_name("Sansation");
 const ICON_ITEM_WIDTH: f32 = 150.0; // Increased to allow padding
 const ICON_ITEM_HEIGHT: f32 = 280.0; // Increased to allow text wrapping
+const COLOR_BACKGROUND: Color = Color::from_rgb(0.05, 0.05, 0.05);
+const COLOR_PANEL: Color = Color::from_rgb(0.1, 0.1, 0.1);
+const COLOR_MENU_BACKGROUND: Color = Color::from_rgb(0.15, 0.15, 0.15);
+const COLOR_STATUS_BACKGROUND: Color = Color::from_rgb(0.12, 0.12, 0.12);
+const COLOR_TEXT_MUTED: Color = Color::from_rgb(0.7, 0.7, 0.7);
+const COLOR_TEXT_HINT: Color = Color::from_rgb(0.6, 0.6, 0.6);
+const COLOR_TEXT_DIM: Color = Color::from_rgb(0.5, 0.5, 0.5);
+const COLOR_TEXT_SOFT: Color = Color::from_rgb(0.8, 0.8, 0.8);
+const COLOR_TEXT_BRIGHT: Color = Color::from_rgb(0.9, 0.9, 0.9);
+const COLOR_ACCENT: Color = Color::from_rgb(0.2, 0.4, 0.8);
+const COLOR_ACCENT_OVERLAY: Color = Color::from_rgba(0.2, 0.4, 0.8, 0.3);
+const COLOR_OVERLAY: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.7);
+const COLOR_OVERLAY_STRONG: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.8);
+const COLOR_STATUS_TEXT: Color = Color::from_rgb(0.9, 0.8, 0.4);
+
+enum IconPath<'a> {
+    Str(&'a str),
+    Path(&'a std::path::Path),
+}
+
+impl IconPath<'_> {
+    fn is_svg(&self) -> bool {
+        match self {
+            IconPath::Str(path) => path.ends_with(".svg"),
+            IconPath::Path(path) => path.extension() == Some(std::ffi::OsStr::new("svg")),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -126,18 +171,9 @@ impl Launcher {
             image_cache,
             scale_factor: 1.0,
             window_width: 1280.0,
-            context_menu_open: false,
-            context_menu_index: 0,
-            // App picker initial state
-            app_picker_open: false,
             available_apps: Vec::new(),
-            app_picker_selected_index: 0,
-            app_picker_cols: 6,
-            app_picker_scrollable_id: Id::unique(),
-            app_picker_scroll_offset: 0.0,
-            app_picker_viewport_height: 0.0,
+            modal: ModalState::None,
             window_id: None,
-            help_modal_open: false,
             game_running: false,
         };
         launcher.update_columns();
@@ -252,8 +288,7 @@ impl Launcher {
                 Task::none()
             }
             Message::OpenAppPicker => {
-                self.app_picker_open = true;
-                self.app_picker_selected_index = 0;
+                self.modal = ModalState::AppPicker(AppPickerState::new());
                 self.available_apps.clear();
                 // Scan for desktop apps asynchronously
                 Task::perform(async { scan_desktop_apps() }, Message::AvailableAppsLoaded)
@@ -273,16 +308,18 @@ impl Launcher {
                     .into_iter()
                     .filter(|app| !existing_execs.contains(&app.exec))
                     .collect();
-                self.app_picker_selected_index = 0;
+                if let Some(state) = self.app_picker_state_mut() {
+                    state.selected_index = 0;
+                }
                 self.update_app_picker_cols();
                 self.snap_to_picker_selection()
             }
             Message::AddSelectedApp => {
-                if let Some(selected_app) = self
-                    .available_apps
-                    .get(self.app_picker_selected_index)
-                    .cloned()
-                {
+                let selected_index = match self.app_picker_state() {
+                    Some(state) => state.selected_index,
+                    None => return Task::none(),
+                };
+                if let Some(selected_app) = self.available_apps.get(selected_index).cloned() {
                     let icon_path = selected_app
                         .icon_path
                         .as_ref()
@@ -321,20 +358,20 @@ impl Launcher {
                     }
 
                     // Remove from available apps and close picker
-                    self.available_apps.remove(self.app_picker_selected_index);
-                    self.app_picker_open = false;
-                    self.app_picker_selected_index = 0;
+                    self.available_apps.remove(selected_index);
+                    self.modal = ModalState::None;
                 }
                 Task::none()
             }
             Message::CloseAppPicker => {
-                self.app_picker_open = false;
-                self.app_picker_selected_index = 0;
+                self.modal = ModalState::None;
                 Task::none()
             }
             Message::AppPickerScrolled(viewport) => {
-                self.app_picker_scroll_offset = viewport.absolute_offset().y;
-                self.app_picker_viewport_height = viewport.bounds().height;
+                if let Some(state) = self.app_picker_state_mut() {
+                    state.scroll_offset = viewport.absolute_offset().y;
+                    state.viewport_height = viewport.bounds().height;
+                }
                 Task::none()
             }
             Message::GameExited => {
@@ -378,7 +415,23 @@ impl Launcher {
         let available_width = self.window_width * 0.8 - 80.0; // 80% width minus padding
         let item_space = ICON_ITEM_WIDTH + 10.0;
         let cols = (available_width / item_space).floor() as usize;
-        self.app_picker_cols = cols.max(1);
+        if let Some(state) = self.app_picker_state_mut() {
+            state.cols = cols.max(1);
+        }
+    }
+
+    fn app_picker_state(&self) -> Option<&AppPickerState> {
+        match &self.modal {
+            ModalState::AppPicker(state) => Some(state),
+            _ => None,
+        }
+    }
+
+    fn app_picker_state_mut(&mut self) -> Option<&mut AppPickerState> {
+        match &mut self.modal {
+            ModalState::AppPicker(state) => Some(state),
+            _ => None,
+        }
     }
 
     pub fn view(&self) -> Element<'_, Message> {
@@ -391,7 +444,7 @@ impl Launcher {
         }
 
         // Add controls hint when no modal is open
-        if !self.context_menu_open && !self.app_picker_open && !self.help_modal_open {
+        if matches!(&self.modal, ModalState::None) {
             column = column.push(self.render_controls_hint());
         }
 
@@ -401,33 +454,30 @@ impl Launcher {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .style(|_theme| iced::widget::container::Style {
-                background: Some(Color::from_rgb(0.05, 0.05, 0.05).into()),
+                background: Some(COLOR_BACKGROUND.into()),
                 text_color: Some(Color::WHITE),
                 ..Default::default()
             })
             .into();
 
-        if self.context_menu_open {
-            Stack::new()
+        match &self.modal {
+            ModalState::ContextMenu { index } => Stack::new()
                 .push(main_content)
-                .push(self.render_context_menu())
-                .into()
-        } else if self.app_picker_open {
-            Stack::new()
+                .push(self.render_context_menu(*index))
+                .into(),
+            ModalState::AppPicker(state) => Stack::new()
                 .push(main_content)
-                .push(self.render_app_picker())
-                .into()
-        } else if self.help_modal_open {
-            Stack::new()
+                .push(self.render_app_picker(state))
+                .into(),
+            ModalState::Help => Stack::new()
                 .push(main_content)
                 .push(self.render_help_modal())
-                .into()
-        } else {
-            main_content
+                .into(),
+            ModalState::None => main_content,
         }
     }
 
-    fn render_context_menu(&self) -> Element<'_, Message> {
+    fn render_context_menu(&self, selected_index: usize) -> Element<'_, Message> {
         let menu_items: Vec<&str> = match self.category {
             Category::Apps => vec!["Launch", "Remove Entry", "Quit Launcher", "Close"],
             Category::Games | Category::System => vec!["Launch", "Quit Launcher", "Close"],
@@ -435,14 +485,14 @@ impl Launcher {
         let mut column = Column::new().spacing(10).padding(20);
 
         for (i, item) in menu_items.iter().enumerate() {
-            let is_selected = i == self.context_menu_index;
+            let is_selected = i == selected_index;
             let text = Text::new(*item)
                 .font(SANSATION)
                 .size(20)
                 .color(if is_selected {
                     Color::WHITE
                 } else {
-                    Color::from_rgb(0.7, 0.7, 0.7)
+                    COLOR_TEXT_MUTED
                 })
                 .align_x(Horizontal::Center);
 
@@ -452,13 +502,13 @@ impl Launcher {
                 .style(move |_| {
                     if is_selected {
                         iced::widget::container::Style {
-                            background: Some(Color::from_rgb(0.2, 0.4, 0.8).into()),
+                            background: Some(COLOR_ACCENT.into()),
                             text_color: Some(Color::WHITE),
                             ..Default::default()
                         }
                     } else {
                         iced::widget::container::Style {
-                            text_color: Some(Color::from_rgb(0.7, 0.7, 0.7)),
+                            text_color: Some(COLOR_TEXT_MUTED),
                             ..Default::default()
                         }
                     }
@@ -470,7 +520,7 @@ impl Launcher {
         let menu_box = Container::new(column)
             .width(Length::Fixed(300.0))
             .style(|_| iced::widget::container::Style {
-                background: Some(Color::from_rgb(0.15, 0.15, 0.15).into()),
+                background: Some(COLOR_MENU_BACKGROUND.into()),
                 border: iced::Border {
                     color: Color::WHITE,
                     width: 1.0,
@@ -485,13 +535,13 @@ impl Launcher {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .style(|_| iced::widget::container::Style {
-                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.7).into()),
+                background: Some(COLOR_OVERLAY.into()),
                 ..Default::default()
             })
             .into()
     }
 
-    fn render_app_picker(&self) -> Element<'_, Message> {
+    fn render_app_picker(&self, state: &AppPickerState) -> Element<'_, Message> {
         let title = Text::new("Add Application")
             .font(SANSATION)
             .size(28)
@@ -507,26 +557,26 @@ impl Launcher {
                 Text::new("No applications found")
                     .font(SANSATION)
                     .size(18)
-                    .color(Color::from_rgb(0.7, 0.7, 0.7)),
+                    .color(COLOR_TEXT_MUTED),
             )
             .padding(40)
             .center_x(Length::Fill)
             .into()
         } else {
             let mut grid = Grid::new()
-                .columns(self.app_picker_cols)
+                .columns(state.cols)
                 .spacing(10)
                 .height(Length::Shrink);
 
             for (i, app) in self.available_apps.iter().enumerate() {
-                let is_selected = i == self.app_picker_selected_index;
+                let is_selected = i == state.selected_index;
                 grid = grid.push(self.render_picker_item(app, is_selected));
             }
 
             Scrollable::new(grid)
                 .width(Length::Fill)
                 .height(Length::Fill)
-                .id(self.app_picker_scrollable_id.clone())
+                .id(state.scrollable_id.clone())
                 .on_scroll(Message::AppPickerScrolled)
                 .into()
         };
@@ -534,7 +584,7 @@ impl Launcher {
         let hint = Text::new("Enter: Add | Escape: Close")
             .font(SANSATION)
             .size(14)
-            .color(Color::from_rgb(0.6, 0.6, 0.6));
+            .color(COLOR_TEXT_HINT);
 
         let hint_container = Container::new(hint)
             .padding(10)
@@ -552,7 +602,7 @@ impl Launcher {
             .height(Length::FillPortion(80))
             .padding(20)
             .style(|_| iced::widget::container::Style {
-                background: Some(Color::from_rgb(0.1, 0.1, 0.1).into()),
+                background: Some(COLOR_PANEL.into()),
                 border: iced::Border {
                     color: Color::WHITE,
                     width: 1.0,
@@ -567,40 +617,113 @@ impl Launcher {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .style(|_| iced::widget::container::Style {
-                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.8).into()),
+                background: Some(COLOR_OVERLAY_STRONG.into()),
                 ..Default::default()
             })
             .into()
     }
 
-    fn render_picker_item(&self, app: &DesktopApp, is_selected: bool) -> Element<'_, Message> {
-        let icon_widget: Element<Message> = if let Some(icon_path) = &app.icon_path {
-            let path_str = icon_path.to_string_lossy();
-            if path_str.ends_with(".svg") {
-                Svg::from_path(icon_path.clone())
-                    .width(Length::Fixed(ICON_SIZE))
-                    .height(Length::Fixed(ICON_SIZE))
-                    .into()
-            } else {
-                Image::new(icon_path.clone())
-                    .width(Length::Fixed(ICON_SIZE))
-                    .height(Length::Fixed(ICON_SIZE))
-                    .content_fit(ContentFit::Contain)
-                    .into()
+    fn embedded_icon_handle(icon_path: &str) -> Option<iced::widget::svg::Handle> {
+        match icon_path {
+            "assets/shutdown.svg" => {
+                crate::assets::get_shutdown_icon().map(iced::widget::svg::Handle::from_memory)
             }
-        } else if let Some(handle) = self.default_icon_handle.clone() {
+            "assets/suspend.svg" => {
+                crate::assets::get_suspend_icon().map(iced::widget::svg::Handle::from_memory)
+            }
+            "assets/exit.svg" => {
+                crate::assets::get_exit_icon().map(iced::widget::svg::Handle::from_memory)
+            }
+            _ => None,
+        }
+    }
+
+    fn render_icon(
+        &self,
+        icon_path: Option<IconPath<'_>>,
+        width: f32,
+        height: f32,
+        fallback_text: &'static str,
+        fallback_size: Option<u32>,
+        allow_embedded_assets: bool,
+    ) -> Element<'_, Message> {
+        if let Some(icon_path) = icon_path {
+            if allow_embedded_assets {
+                if let IconPath::Str(path) = &icon_path {
+                    if let Some(handle) = Self::embedded_icon_handle(path) {
+                        return Svg::new(handle)
+                            .width(Length::Fixed(width))
+                            .height(Length::Fixed(height))
+                            .into();
+                    }
+                }
+            }
+
+            let is_svg = icon_path.is_svg();
+            match icon_path {
+                IconPath::Str(path) => {
+                    if is_svg {
+                        return Svg::from_path(path)
+                            .width(Length::Fixed(width))
+                            .height(Length::Fixed(height))
+                            .into();
+                    }
+
+                    return Image::new(path)
+                        .width(Length::Fixed(width))
+                        .height(Length::Fixed(height))
+                        .content_fit(ContentFit::Contain)
+                        .into();
+                }
+                IconPath::Path(path) => {
+                    if is_svg {
+                        return Svg::from_path(path.to_path_buf())
+                            .width(Length::Fixed(width))
+                            .height(Length::Fixed(height))
+                            .into();
+                    }
+
+                    return Image::new(path.to_path_buf())
+                        .width(Length::Fixed(width))
+                        .height(Length::Fixed(height))
+                        .content_fit(ContentFit::Contain)
+                        .into();
+                }
+            }
+        }
+
+        if let Some(handle) = self.default_icon_handle.clone() {
             Svg::new(handle)
-                .width(Length::Fixed(ICON_SIZE))
-                .height(Length::Fixed(ICON_SIZE))
+                .width(Length::Fixed(width))
+                .height(Length::Fixed(height))
                 .into()
         } else {
-            Container::new(Text::new("?").font(SANSATION).size(48).color(Color::WHITE))
-                .width(Length::Fixed(ICON_SIZE))
-                .height(Length::Fixed(ICON_SIZE))
+            let text = match fallback_size {
+                Some(size) => Text::new(fallback_text)
+                    .font(SANSATION)
+                    .size(size)
+                    .color(Color::WHITE),
+                None => Text::new(fallback_text).font(SANSATION).color(Color::WHITE),
+            };
+
+            Container::new(text)
+                .width(Length::Fixed(width))
+                .height(Length::Fixed(height))
                 .center_x(Length::Fill)
                 .center_y(Length::Fill)
                 .into()
-        };
+        }
+    }
+
+    fn render_picker_item(&self, app: &DesktopApp, is_selected: bool) -> Element<'_, Message> {
+        let icon_widget = self.render_icon(
+            app.icon_path.as_deref().map(IconPath::Path),
+            ICON_SIZE,
+            ICON_SIZE,
+            "?",
+            Some(48),
+            false,
+        );
 
         let icon_container = Container::new(icon_widget).padding(6);
 
@@ -627,11 +750,11 @@ impl Launcher {
                 if is_selected {
                     iced::widget::container::Style {
                         border: iced::Border {
-                            color: Color::from_rgb(0.2, 0.4, 0.8),
+                            color: COLOR_ACCENT,
                             width: 2.0,
                             radius: 4.0.into(),
                         },
-                        background: Some(Color::from_rgba(0.2, 0.4, 0.8, 0.3).into()),
+                        background: Some(COLOR_ACCENT_OVERLAY.into()),
                         ..Default::default()
                     }
                 } else {
@@ -650,7 +773,9 @@ impl Launcher {
         let gamepad = gamepad_subscription().map(Message::Input);
 
         let window_events = iced::event::listen_with(|event, _status, window_id| match event {
-            Event::Window(iced::window::Event::Opened { .. }) => Some(Message::WindowOpened(window_id)),
+            Event::Window(iced::window::Event::Opened { .. }) => {
+                Some(Message::WindowOpened(window_id))
+            }
             Event::Window(iced::window::Event::Rescaled(scale_factor)) => {
                 Some(Message::ScaleFactorChanged(scale_factor as f64))
             }
@@ -695,21 +820,16 @@ impl Launcher {
             std::process::exit(0);
         }
 
-        if self.help_modal_open {
-            return self.handle_help_modal_navigation(action);
-        }
-
-        if self.context_menu_open {
-            return self.handle_context_menu_navigation(action);
-        }
-
-        if self.app_picker_open {
-            return self.handle_app_picker_navigation(action);
+        match &self.modal {
+            ModalState::Help => return self.handle_help_modal_navigation(action),
+            ModalState::ContextMenu { .. } => return self.handle_context_menu_navigation(action),
+            ModalState::AppPicker(_) => return self.handle_app_picker_navigation(action),
+            ModalState::None => {}
         }
 
         match action {
             Action::ShowHelp => {
-                self.help_modal_open = true;
+                self.modal = ModalState::Help;
                 return Task::none();
             }
             Action::AddApp => {
@@ -720,8 +840,7 @@ impl Launcher {
             }
             Action::ContextMenu => {
                 if !self.active_items().is_empty() {
-                    self.context_menu_open = true;
-                    self.context_menu_index = 0;
+                    self.modal = ModalState::ContextMenu { index: 0 };
                 }
                 return Task::none();
             }
@@ -746,33 +865,37 @@ impl Launcher {
         }
 
         match action {
-            Action::Up => {
-                if self.selected_index >= self.cols {
-                    self.selected_index -= self.cols;
-                }
-            }
-            Action::Down => {
-                if self.selected_index + self.cols < list_len {
-                    self.selected_index += self.cols;
-                }
-            }
-            Action::Left => {
-                if self.selected_index > 0 {
-                    self.selected_index -= 1;
-                }
-            }
-            Action::Right => {
-                if self.selected_index + 1 < list_len {
-                    self.selected_index += 1;
-                }
-            }
             Action::Select => {
                 return self.activate_selected();
             }
-            _ => {}
+            _ => {
+                Self::navigate_grid(&mut self.selected_index, action, self.cols, list_len);
+            }
         }
 
         Task::none()
+    }
+
+    fn navigate_grid(index: &mut usize, action: Action, cols: usize, len: usize) -> bool {
+        match action {
+            Action::Up if *index >= cols => {
+                *index -= cols;
+                true
+            }
+            Action::Down if *index + cols < len => {
+                *index += cols;
+                true
+            }
+            Action::Left if *index > 0 => {
+                *index -= 1;
+                true
+            }
+            Action::Right if *index + 1 < len => {
+                *index += 1;
+                true
+            }
+            _ => false,
+        }
     }
 
     fn handle_context_menu_navigation(&mut self, action: Action) -> Task<Message> {
@@ -781,27 +904,30 @@ impl Launcher {
             Category::Games | Category::System => 2,
         };
 
+        let mut index = match &self.modal {
+            ModalState::ContextMenu { index } => *index,
+            _ => return Task::none(),
+        };
+
         match action {
             Action::Up => {
-                if self.context_menu_index > 0 {
-                    self.context_menu_index -= 1;
-                }
+                index = index.saturating_sub(1);
             }
             Action::Down => {
-                if self.context_menu_index < max_index {
-                    self.context_menu_index += 1;
+                if index < max_index {
+                    index += 1;
                 }
             }
             Action::Select => {
-                match (self.category, self.context_menu_index) {
+                match (self.category, index) {
                     (Category::Apps, 0) | (Category::Games, 0) | (Category::System, 0) => {
                         // Launch
-                        self.context_menu_open = false;
+                        self.modal = ModalState::None;
                         return self.activate_selected();
                     }
                     (Category::Apps, 1) => {
                         // Remove Entry
-                        self.context_menu_open = false;
+                        self.modal = ModalState::None;
                         if self.selected_index < self.apps.len() {
                             let removed = self.apps.remove(self.selected_index);
                             self.clamp_selected_index();
@@ -836,28 +962,31 @@ impl Launcher {
                         } else {
                             1
                         };
-                        if self.context_menu_index == quit_index {
+                        if index == quit_index {
                             // Quit Launcher
                             std::process::exit(0);
                         } else {
                             // Close
-                            self.context_menu_open = false;
+                            self.modal = ModalState::None;
+                            return Task::none();
                         }
                     }
                 }
             }
             Action::Back | Action::ContextMenu => {
-                self.context_menu_open = false;
+                self.modal = ModalState::None;
+                return Task::none();
             }
             _ => {}
         }
+        self.modal = ModalState::ContextMenu { index };
         Task::none()
     }
 
     fn handle_help_modal_navigation(&mut self, action: Action) -> Task<Message> {
         match action {
             Action::Back | Action::ShowHelp => {
-                self.help_modal_open = false;
+                self.modal = ModalState::None;
             }
             _ => {} // Ignore other inputs while modal is open
         }
@@ -865,15 +994,19 @@ impl Launcher {
     }
 
     fn snap_to_picker_selection(&self) -> Task<Message> {
-        let row = self.app_picker_selected_index / self.app_picker_cols;
+        let Some(state) = self.app_picker_state() else {
+            return Task::none();
+        };
+
+        let row = state.selected_index / state.cols;
         let item_height_with_spacing = ICON_ITEM_HEIGHT + 10.0;
 
         let item_top = row as f32 * item_height_with_spacing;
         let item_bottom = item_top + ICON_ITEM_HEIGHT;
 
-        let viewport_top = self.app_picker_scroll_offset;
-        let viewport_height = if self.app_picker_viewport_height > 0.0 {
-            self.app_picker_viewport_height
+        let viewport_top = state.scroll_offset;
+        let viewport_height = if state.viewport_height > 0.0 {
+            state.viewport_height
         } else {
             // Fallback estimate if viewport not yet reported (e.g. initial render)
             600.0
@@ -893,7 +1026,7 @@ impl Launcher {
 
         if let Some(y) = target_y {
             operation::scroll_to(
-                self.app_picker_scrollable_id.clone(),
+                state.scrollable_id.clone(),
                 AbsoluteOffset {
                     x: 0.0,
                     y: y.max(0.0),
@@ -917,43 +1050,37 @@ impl Launcher {
             return Task::none();
         }
 
+        let (mut selected_index, cols) = match self.app_picker_state() {
+            Some(state) => (state.selected_index, state.cols),
+            None => return Task::none(),
+        };
+
         match action {
-            Action::Up => {
-                if self.app_picker_selected_index >= self.app_picker_cols {
-                    self.app_picker_selected_index -= self.app_picker_cols;
-                }
-            }
-            Action::Down => {
-                if self.app_picker_selected_index + self.app_picker_cols < list_len {
-                    self.app_picker_selected_index += self.app_picker_cols;
-                }
-            }
-            Action::Left => {
-                if self.app_picker_selected_index > 0 {
-                    self.app_picker_selected_index -= 1;
-                }
-            }
-            Action::Right => {
-                if self.app_picker_selected_index + 1 < list_len {
-                    self.app_picker_selected_index += 1;
-                }
-            }
             Action::Select => {
                 return self.update(Message::AddSelectedApp);
             }
             Action::Back | Action::AddApp => {
                 return self.update(Message::CloseAppPicker);
             }
-            _ => {}
+            _ => {
+                Self::navigate_grid(&mut selected_index, action, cols, list_len);
+            }
+        }
+
+        if let Some(state) = self.app_picker_state_mut() {
+            state.selected_index = selected_index;
         }
         self.snap_to_picker_selection()
     }
 
     fn activate_selected(&mut self) -> Task<Message> {
-        let selection = self
-            .active_items()
-            .get(self.selected_index)
-            .map(|item| (item.action.clone(), item.name.clone(), item.game_executable.clone()));
+        let selection = self.active_items().get(self.selected_index).map(|item| {
+            (
+                item.action.clone(),
+                item.name.clone(),
+                item.game_executable.clone(),
+            )
+        });
 
         let Some((action, item_name, game_executable)) = selection else {
             return Task::none();
@@ -968,7 +1095,10 @@ impl Launcher {
                 let heroic_launch_prefix = "xdg-open heroic://launch/";
 
                 let monitor_target = if exec.starts_with(steam_launch_prefix) {
-                    let appid = exec.trim_start_matches(steam_launch_prefix).trim().to_string();
+                    let appid = exec
+                        .trim_start_matches(steam_launch_prefix)
+                        .trim()
+                        .to_string();
                     // We still launch the steam command, but we monitor the AppId
                     Some(MonitorTarget::SteamAppId(appid))
                 } else if exec.starts_with(heroic_launch_prefix) {
@@ -991,22 +1121,22 @@ impl Launcher {
 
                     if let Some(name) = app_name {
                         info!("Detected Heroic launch for app: {}", name);
-                        
+
                         let mut targets = vec![
                             MonitorTarget::EnvVarEq("LEGENDARY_GAME_ID".to_string(), name.clone()),
                             MonitorTarget::EnvVarEq("HeroicAppName".to_string(), name.clone()),
                             MonitorTarget::CmdLineContains(item_name.clone()),
                         ];
-                        
+
                         // Add exact executable match if available
                         if let Some(exe) = game_executable {
                             info!("Monitoring executable for {}: {}", name, exe);
                             targets.push(MonitorTarget::CmdLineContains(exe));
                         }
-                        
+
                         let sanitized_name = item_name.replace(":", "");
                         if sanitized_name != item_name {
-                             targets.push(MonitorTarget::CmdLineContains(sanitized_name));
+                            targets.push(MonitorTarget::CmdLineContains(sanitized_name));
                         }
 
                         Some(MonitorTarget::Any(targets))
@@ -1021,16 +1151,13 @@ impl Launcher {
                     Ok(pid) => {
                         self.game_running = true;
                         let target = monitor_target.unwrap_or(MonitorTarget::Pid(pid));
-                        let monitor_task = Task::perform(
-                            async move { monitor_app_process(target).await },
-                            |_| Message::GameExited,
-                        );
+                        let monitor_task =
+                            Task::perform(async move { monitor_app_process(target).await }, |_| {
+                                Message::GameExited
+                            });
 
                         if let Some(id) = self.window_id {
-                            Task::batch(vec![
-                                window::minimize(id, true),
-                                monitor_task,
-                            ])
+                            Task::batch(vec![window::minimize(id, true), monitor_task])
                         } else {
                             monitor_task
                         }
@@ -1138,19 +1265,19 @@ impl Launcher {
                     .color(if is_selected {
                         Color::WHITE
                     } else {
-                        Color::from_rgb(0.7, 0.7, 0.7)
+                        COLOR_TEXT_MUTED
                     });
 
             let tab = Container::new(label).padding(8).style(move |_theme| {
                 if is_selected {
                     iced::widget::container::Style {
-                        background: Some(Color::from_rgb(0.2, 0.4, 0.8).into()),
+                        background: Some(COLOR_ACCENT.into()),
                         text_color: Some(Color::WHITE),
                         ..Default::default()
                     }
                 } else {
                     iced::widget::container::Style {
-                        background: Some(Color::from_rgb(0.1, 0.1, 0.1).into()),
+                        background: Some(COLOR_PANEL.into()),
                         text_color: Some(Color::WHITE),
                         ..Default::default()
                     }
@@ -1265,50 +1392,14 @@ impl Launcher {
         item_width: f32,
         _item_height: f32,
     ) -> Element<'_, Message> {
-        let icon_widget: Element<Message> = if let Some(icon_path) = &item.icon {
-            // Check for embedded assets first
-            let embedded_handle =
-                match icon_path.as_str() {
-                    "assets/shutdown.svg" => crate::assets::get_shutdown_icon()
-                        .map(iced::widget::svg::Handle::from_memory),
-                    "assets/suspend.svg" => crate::assets::get_suspend_icon()
-                        .map(iced::widget::svg::Handle::from_memory),
-                    "assets/exit.svg" => {
-                        crate::assets::get_exit_icon().map(iced::widget::svg::Handle::from_memory)
-                    }
-                    _ => None,
-                };
-
-            if let Some(handle) = embedded_handle {
-                Svg::new(handle)
-                    .width(Length::Fixed(image_width))
-                    .height(Length::Fixed(image_height))
-                    .into()
-            } else if icon_path.ends_with(".svg") {
-                Svg::from_path(icon_path)
-                    .width(Length::Fixed(image_width))
-                    .height(Length::Fixed(image_height))
-                    .into()
-            } else {
-                Image::new(icon_path)
-                    .width(Length::Fixed(image_width))
-                    .height(Length::Fixed(image_height))
-                    .content_fit(ContentFit::Contain)
-                    .into()
-            }
-        } else if let Some(handle) = self.default_icon_handle.clone() {
-            Svg::new(handle)
-                .width(Length::Fixed(image_width))
-                .height(Length::Fixed(image_height))
-                .into()
-        } else {
-            Container::new(Text::new("ICON").font(SANSATION).color(Color::WHITE))
-                .width(Length::Fixed(image_width))
-                .height(Length::Fixed(image_height))
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .into()
-        };
+        let icon_widget = self.render_icon(
+            item.icon.as_deref().map(IconPath::Str),
+            image_width,
+            image_height,
+            "ICON",
+            None,
+            true,
+        );
 
         let icon_container = Container::new(icon_widget).padding(6);
 
@@ -1337,7 +1428,7 @@ impl Launcher {
                 if is_selected {
                     iced::widget::container::Style {
                         border: iced::Border {
-                            color: Color::from_rgb(0.2, 0.4, 0.8),
+                            color: COLOR_ACCENT,
                             width: 1.0,
                             radius: 4.0.into(),
                         },
@@ -1353,18 +1444,14 @@ impl Launcher {
     fn render_status(&self) -> Option<Element<'_, Message>> {
         let status = self.status_message.as_ref()?;
         Some(
-            Container::new(
-                Text::new(status)
-                    .font(SANSATION)
-                    .color(Color::from_rgb(0.9, 0.8, 0.4)),
-            )
-            .padding(8)
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(Color::from_rgb(0.12, 0.12, 0.12).into()),
-                text_color: Some(Color::WHITE),
-                ..Default::default()
-            })
-            .into(),
+            Container::new(Text::new(status).font(SANSATION).color(COLOR_STATUS_TEXT))
+                .padding(8)
+                .style(|_theme| iced::widget::container::Style {
+                    background: Some(COLOR_STATUS_BACKGROUND.into()),
+                    text_color: Some(Color::WHITE),
+                    ..Default::default()
+                })
+                .into(),
         )
     }
 
@@ -1372,7 +1459,7 @@ impl Launcher {
         let hint = Text::new("Press  −  for controls")
             .font(SANSATION)
             .size(14)
-            .color(Color::from_rgb(0.5, 0.5, 0.5));
+            .color(COLOR_TEXT_DIM);
 
         Container::new(hint)
             .width(Length::Fill)
@@ -1422,7 +1509,7 @@ impl Launcher {
             Text::new("Gamepad")
                 .font(SANSATION)
                 .size(18)
-                .color(Color::from_rgb(0.8, 0.8, 0.8)),
+                .color(COLOR_TEXT_SOFT),
         );
 
         // Gamepad bindings
@@ -1433,7 +1520,7 @@ impl Launcher {
                         Text::new(button)
                             .font(SANSATION)
                             .size(16)
-                            .color(Color::from_rgb(0.9, 0.9, 0.9)),
+                            .color(COLOR_TEXT_BRIGHT),
                     )
                     .width(Length::Fixed(200.0)),
                 )
@@ -1441,7 +1528,7 @@ impl Launcher {
                     Text::new(action)
                         .font(SANSATION)
                         .size(16)
-                        .color(Color::from_rgb(0.7, 0.7, 0.7)),
+                        .color(COLOR_TEXT_MUTED),
                 )
                 .spacing(20);
             content_column = content_column.push(row);
@@ -1456,7 +1543,7 @@ impl Launcher {
             Text::new("Keyboard")
                 .font(SANSATION)
                 .size(18)
-                .color(Color::from_rgb(0.8, 0.8, 0.8)),
+                .color(COLOR_TEXT_SOFT),
         );
 
         // Keyboard bindings
@@ -1467,7 +1554,7 @@ impl Launcher {
                         Text::new(key)
                             .font(SANSATION)
                             .size(16)
-                            .color(Color::from_rgb(0.9, 0.9, 0.9)),
+                            .color(COLOR_TEXT_BRIGHT),
                     )
                     .width(Length::Fixed(200.0)),
                 )
@@ -1475,7 +1562,7 @@ impl Launcher {
                     Text::new(action)
                         .font(SANSATION)
                         .size(16)
-                        .color(Color::from_rgb(0.7, 0.7, 0.7)),
+                        .color(COLOR_TEXT_MUTED),
                 )
                 .spacing(20);
             content_column = content_column.push(row);
@@ -1489,7 +1576,7 @@ impl Launcher {
         let hint = Text::new("Press B or − to close")
             .font(SANSATION)
             .size(14)
-            .color(Color::from_rgb(0.6, 0.6, 0.6));
+            .color(COLOR_TEXT_HINT);
 
         let hint_container = Container::new(hint)
             .padding(10)
@@ -1508,7 +1595,7 @@ impl Launcher {
             .height(Length::FillPortion(70))
             .padding(20)
             .style(|_| iced::widget::container::Style {
-                background: Some(Color::from_rgb(0.1, 0.1, 0.1).into()),
+                background: Some(COLOR_PANEL.into()),
                 border: iced::Border {
                     color: Color::WHITE,
                     width: 1.0,
@@ -1524,7 +1611,7 @@ impl Launcher {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .style(|_| iced::widget::container::Style {
-                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.8).into()),
+                background: Some(COLOR_OVERLAY_STRONG.into()),
                 ..Default::default()
             })
             .into()
@@ -1684,5 +1771,23 @@ mod tests {
         assert_eq!(launcher.category, Category::System);
         let _ = launcher.handle_navigation(Action::NextCategory);
         assert_eq!(launcher.category, Category::Apps);
+    }
+
+    #[test]
+    fn test_navigate_grid_moves_within_bounds() {
+        let mut index = 5;
+        let moved = Launcher::navigate_grid(&mut index, Action::Up, 3, 10);
+
+        assert!(moved);
+        assert_eq!(index, 2);
+    }
+
+    #[test]
+    fn test_navigate_grid_blocks_out_of_bounds() {
+        let mut index = 1;
+        let moved = Launcher::navigate_grid(&mut index, Action::Up, 3, 10);
+
+        assert!(!moved);
+        assert_eq!(index, 1);
     }
 }

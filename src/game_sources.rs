@@ -375,12 +375,18 @@ fn heroic_game_from_object(
         .and_then(|v| v.as_str())
         .or_else(|| obj.get("art_square").and_then(|v| v.as_str()))
         .map(String::from);
-        
+
     let executable = obj
         .get("install")
         .and_then(|v| v.get("executable"))
         .and_then(|v| v.as_str())
-        .map(|path| Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string());
+        .map(|path| {
+            Path::new(path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        });
 
     Some(HeroicGame {
         app_name: app_name.to_string(),

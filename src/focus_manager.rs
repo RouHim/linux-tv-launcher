@@ -40,15 +40,13 @@ pub async fn monitor_app_process(target: MonitorTarget) {
                     warn!("Timed out waiting for target to start: {:?}", target);
                     break;
                 }
-            }
-            else {
+            } else {
                 // We saw it running before, but now it's gone.
                 // Check grace period
                 if last_seen_time.elapsed() > GAME_EXIT_GRACE_PERIOD {
                     info!("Target exited (grace period expired): {:?}", target);
                     break;
-                }
-                else {
+                } else {
                     debug!("Target disappeared, waiting grace period... {:?}", target);
                 }
             }

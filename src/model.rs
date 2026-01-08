@@ -145,7 +145,7 @@ impl AppEntry {
             game_executable: None,
         }
     }
-    
+
     pub fn with_executable(mut self, executable: Option<String>) -> Self {
         self.game_executable = executable;
         self

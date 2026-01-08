@@ -104,61 +104,55 @@ fn privilege_mode() -> PrivilegeMode {
     }
 }
 
+fn build_command_with_privilege(
+    mode: PrivilegeMode,
+    program: &str,
+    mut args: Vec<String>,
+    label: &'static str,
+) -> UpdateCommand {
+    match mode {
+        PrivilegeMode::Pkexec => {
+            args.insert(0, program.to_string());
+            UpdateCommand {
+                program: "pkexec".to_string(),
+                args,
+                label,
+            }
+        }
+        PrivilegeMode::Sudo => {
+            args.insert(0, program.to_string());
+            args.insert(0, "-n".to_string());
+            UpdateCommand {
+                program: "sudo".to_string(),
+                args,
+                label,
+            }
+        }
+        PrivilegeMode::None => UpdateCommand {
+            program: program.to_string(),
+            args,
+            label,
+        },
+    }
+}
+
 fn build_command(
     mode: PrivilegeMode,
     program: &str,
     args: &[&str],
     label: &'static str,
 ) -> UpdateCommand {
-    match mode {
-        PrivilegeMode::Pkexec => UpdateCommand {
-            program: "pkexec".to_string(),
-            args: std::iter::once(program)
-                .chain(args.iter().copied())
-                .map(String::from)
-                .collect(),
-            label,
-        },
-        PrivilegeMode::Sudo => UpdateCommand {
-            program: "sudo".to_string(),
-            args: std::iter::once("-n")
-                .chain(std::iter::once(program))
-                .chain(args.iter().copied())
-                .map(String::from)
-                .collect(),
-            label,
-        },
-        PrivilegeMode::None => UpdateCommand {
-            program: program.to_string(),
-            args: args.iter().map(|arg| (*arg).to_string()).collect(),
-            label,
-        },
-    }
+    let args = args.iter().map(|arg| (*arg).to_string()).collect();
+    build_command_with_privilege(mode, program, args, label)
 }
 
 fn build_shell_command(mode: PrivilegeMode, command: &str, label: &'static str) -> UpdateCommand {
-    match mode {
-        PrivilegeMode::Pkexec => UpdateCommand {
-            program: "pkexec".to_string(),
-            args: vec!["sh".to_string(), "-c".to_string(), command.to_string()],
-            label,
-        },
-        PrivilegeMode::Sudo => UpdateCommand {
-            program: "sudo".to_string(),
-            args: vec![
-                "-n".to_string(),
-                "sh".to_string(),
-                "-c".to_string(),
-                command.to_string(),
-            ],
-            label,
-        },
-        PrivilegeMode::None => UpdateCommand {
-            program: "sh".to_string(),
-            args: vec!["-c".to_string(), command.to_string()],
-            label,
-        },
-    }
+    build_command_with_privilege(
+        mode,
+        "sh",
+        vec!["-c".to_string(), command.to_string()],
+        label,
+    )
 }
 
 fn command_exists(command: &str) -> bool {
