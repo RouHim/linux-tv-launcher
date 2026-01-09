@@ -17,10 +17,11 @@ use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
 use crate::focus_manager::{monitor_app_process, MonitorTarget};
 use crate::game_sources::scan_games;
 use crate::gamepad::gamepad_subscription;
+use crate::icons;
 use crate::image_cache::ImageCache;
 use crate::input::Action;
 use crate::launcher::launch_app;
-use crate::model::{AppEntry, Category, LauncherAction, LauncherItem};
+use crate::model::{AppEntry, Category, LauncherAction, LauncherItem, SystemIcon};
 use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config};
@@ -623,21 +624,6 @@ impl Launcher {
             .into()
     }
 
-    fn embedded_icon_handle(icon_path: &str) -> Option<iced::widget::svg::Handle> {
-        match icon_path {
-            "assets/shutdown.svg" => {
-                crate::assets::get_shutdown_icon().map(iced::widget::svg::Handle::from_memory)
-            }
-            "assets/suspend.svg" => {
-                crate::assets::get_suspend_icon().map(iced::widget::svg::Handle::from_memory)
-            }
-            "assets/exit.svg" => {
-                crate::assets::get_exit_icon().map(iced::widget::svg::Handle::from_memory)
-            }
-            _ => None,
-        }
-    }
-
     fn render_icon(
         &self,
         icon_path: Option<IconPath<'_>>,
@@ -645,20 +631,8 @@ impl Launcher {
         height: f32,
         fallback_text: &'static str,
         fallback_size: Option<u32>,
-        allow_embedded_assets: bool,
     ) -> Element<'_, Message> {
         if let Some(icon_path) = icon_path {
-            if allow_embedded_assets {
-                if let IconPath::Str(path) = &icon_path {
-                    if let Some(handle) = Self::embedded_icon_handle(path) {
-                        return Svg::new(handle)
-                            .width(Length::Fixed(width))
-                            .height(Length::Fixed(height))
-                            .into();
-                    }
-                }
-            }
-
             let is_svg = icon_path.is_svg();
             match icon_path {
                 IconPath::Str(path) => {
@@ -722,7 +696,6 @@ impl Launcher {
             ICON_SIZE,
             "?",
             Some(48),
-            false,
         );
 
         let icon_container = Container::new(icon_widget).padding(6);
@@ -1392,14 +1365,22 @@ impl Launcher {
         item_width: f32,
         _item_height: f32,
     ) -> Element<'_, Message> {
-        let icon_widget = self.render_icon(
-            item.icon.as_deref().map(IconPath::Str),
-            image_width,
-            image_height,
-            "ICON",
-            None,
-            true,
-        );
+        let icon_widget: Element<'_, Message> = if let Some(sys_icon) = &item.system_icon {
+            match sys_icon {
+                SystemIcon::PowerOff => icons::power_off_icon(image_width),
+                SystemIcon::Pause => icons::pause_icon(image_width),
+                SystemIcon::ArrowsRotate => icons::arrows_rotate_icon(image_width),
+                SystemIcon::ExitBracket => icons::exit_icon(image_width),
+            }
+        } else {
+            self.render_icon(
+                item.icon.as_deref().map(IconPath::Str),
+                image_width,
+                image_height,
+                "ICON",
+                None,
+            )
+        };
 
         let icon_container = Container::new(icon_widget).padding(6);
 

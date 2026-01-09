@@ -6,6 +6,7 @@ mod desktop_apps;
 mod focus_manager;
 mod game_sources;
 mod gamepad;
+mod icons;
 mod image_cache;
 mod input;
 mod launcher;
@@ -16,6 +17,7 @@ mod storage;
 mod system_update;
 
 use app::Launcher;
+use iced_fonts::FONTAWESOME_FONT_BYTES;
 
 fn main() -> iced::Result {
     let mut env_filter = EnvFilter::from_default_env();
@@ -29,6 +31,7 @@ fn main() -> iced::Result {
         .title(|launcher: &Launcher| launcher.title())
         .subscription(Launcher::subscription)
         .font(assets::get_sansation_font().expect("Sansation font embedded"))
+        .font(FONTAWESOME_FONT_BYTES)
         .window(iced::window::Settings {
             decorations: false,
             fullscreen: true,

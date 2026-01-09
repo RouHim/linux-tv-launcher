@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="128" height="128">
-  <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14z" fill="none" stroke="white" stroke-width="2"/>
-  <path d="M12 6v12M8 9l8 6M8 15l8-6" stroke="white" stroke-width="0" fill="white"/>
-  <!-- Simple moon shape for suspend -->
-  <path d="M14.1 6a7 7 0 0 0-7.8 10.6 9 9 0 1 1 7.8-10.6z" />
-</svg>

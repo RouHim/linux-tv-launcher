@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemIcon {
+    PowerOff,
+    Pause,
+    ArrowsRotate,
+    ExitBracket,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
     Apps,
     Games,
@@ -50,16 +58,14 @@ pub struct LauncherItem {
     pub id: Uuid,
     pub name: String,
     pub icon: Option<String>,
+    pub system_icon: Option<SystemIcon>,
     pub action: LauncherAction,
-    /// Source image URL (e.g., from Heroic) to use for fetching cover art
     pub source_image_url: Option<String>,
     pub game_executable: Option<String>,
 }
 
 impl LauncherItem {
     pub fn from_app_entry(entry: AppEntry) -> Self {
-        // If icon is a URL (starts with http), treat it as source_image_url
-        // Otherwise treat it as a local file path
         let (icon, source_image_url) = if let Some(ref icon_str) = entry.icon {
             if icon_str.starts_with("http://") || icon_str.starts_with("https://") {
                 (None, Some(icon_str.clone()))
@@ -74,6 +80,7 @@ impl LauncherItem {
             id: entry.id,
             name: entry.name,
             icon,
+            system_icon: None,
             action: LauncherAction::Launch { exec: entry.exec },
             source_image_url,
             game_executable: entry.game_executable,
@@ -85,6 +92,7 @@ impl LauncherItem {
             id: Uuid::new_v4(),
             name: "Update System".to_string(),
             icon: None,
+            system_icon: Some(SystemIcon::ArrowsRotate),
             action: LauncherAction::SystemUpdate,
             source_image_url: None,
             game_executable: None,
@@ -95,7 +103,8 @@ impl LauncherItem {
         Self {
             id: Uuid::new_v4(),
             name: "Shutdown".to_string(),
-            icon: Some("assets/shutdown.svg".to_string()),
+            icon: None,
+            system_icon: Some(SystemIcon::PowerOff),
             action: LauncherAction::Shutdown,
             source_image_url: None,
             game_executable: None,
@@ -106,7 +115,8 @@ impl LauncherItem {
         Self {
             id: Uuid::new_v4(),
             name: "Suspend".to_string(),
-            icon: Some("assets/suspend.svg".to_string()),
+            icon: None,
+            system_icon: Some(SystemIcon::Pause),
             action: LauncherAction::Suspend,
             source_image_url: None,
             game_executable: None,
@@ -117,7 +127,8 @@ impl LauncherItem {
         Self {
             id: Uuid::new_v4(),
             name: "Exit Launcher".to_string(),
-            icon: Some("assets/exit.svg".to_string()),
+            icon: None,
+            system_icon: Some(SystemIcon::ExitBracket),
             action: LauncherAction::Exit,
             source_image_url: None,
             game_executable: None,

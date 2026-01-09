@@ -23,6 +23,7 @@ ureq = { version = "2.12", features = ["json", "tls"] }
 urlencoding = "2.1"
 image = { version = "0.25", features = ["webp", "png", "jpeg"] }
 procfs = "0.17"
+iced_fonts = { version = "0.3", features = ["fontawesome"] }
 
 [profile.release]
 lto = true
