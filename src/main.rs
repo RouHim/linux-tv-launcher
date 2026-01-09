@@ -1,9 +1,9 @@
 use tracing_subscriber::EnvFilter;
 
-mod app;
 mod assets;
 mod desktop_apps;
 mod focus_manager;
+mod game_image_fetcher;
 mod game_sources;
 mod gamepad;
 mod icons;
@@ -15,9 +15,14 @@ mod searxng;
 mod steamgriddb;
 mod storage;
 mod system_update;
+mod ui;
+mod ui_app_picker;
+mod ui_components;
+mod ui_modals;
+mod ui_theme;
 
-use app::Launcher;
 use iced_fonts::FONTAWESOME_FONT_BYTES;
+use ui::Launcher;
 
 fn main() -> iced::Result {
     let mut env_filter = EnvFilter::from_default_env();

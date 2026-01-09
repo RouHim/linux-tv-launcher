@@ -1,6 +1,9 @@
 use std::process::{Command, Stdio};
 use thiserror::Error;
 use tracing::{error, info};
+use urlencoding::decode;
+
+use crate::focus_manager::MonitorTarget;
 
 #[derive(Debug, Error)]
 pub enum LaunchError {
@@ -46,4 +49,67 @@ pub fn launch_app(exec: &str) -> Result<u32, LaunchError> {
             })
         }
     }
+}
+
+pub fn resolve_monitor_target(
+    exec: &str,
+    item_name: &str,
+    game_executable: Option<&String>,
+) -> Option<MonitorTarget> {
+    // Check if it's a Steam game launch
+    let steam_launch_prefix = "steam -applaunch ";
+    let heroic_launch_prefix = "xdg-open heroic://launch/";
+
+    if exec.starts_with(steam_launch_prefix) {
+        let appid = exec
+            .trim_start_matches(steam_launch_prefix)
+            .trim()
+            .to_string();
+        // We still launch the steam command, but we monitor the AppId
+        return Some(MonitorTarget::SteamAppId(appid));
+    }
+
+    if exec.starts_with(heroic_launch_prefix) {
+        let url_part = exec.trim_start_matches(heroic_launch_prefix).trim();
+        let parts: Vec<&str> = url_part.split('/').collect();
+
+        let mut app_name = None;
+
+        if parts.len() >= 2 {
+            // store/app_name
+            if let Ok(decoded) = decode(parts[1]) {
+                app_name = Some(decoded.to_string());
+            }
+        } else if parts.len() == 1 {
+            // app_name
+            if let Ok(decoded) = decode(parts[0]) {
+                app_name = Some(decoded.to_string());
+            }
+        }
+
+        if let Some(name) = app_name {
+            info!("Detected Heroic launch for app: {}", name);
+
+            let mut targets = vec![
+                MonitorTarget::EnvVarEq("LEGENDARY_GAME_ID".to_string(), name.clone()),
+                MonitorTarget::EnvVarEq("HeroicAppName".to_string(), name.clone()),
+                MonitorTarget::CmdLineContains(item_name.to_string()),
+            ];
+
+            // Add exact executable match if available
+            if let Some(exe) = game_executable {
+                info!("Monitoring executable for {}: {}", name, exe);
+                targets.push(MonitorTarget::CmdLineContains(exe.clone()));
+            }
+
+            let sanitized_name = item_name.replace(":", "");
+            if sanitized_name != item_name {
+                targets.push(MonitorTarget::CmdLineContains(sanitized_name));
+            }
+
+            return Some(MonitorTarget::Any(targets));
+        }
+    }
+
+    None
 }

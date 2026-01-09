@@ -1,52 +1,35 @@
 use iced::alignment::Horizontal;
 use iced::keyboard::{self, key::Named, Key};
-use iced::widget::scrollable::{AbsoluteOffset, Viewport};
-use iced::widget::{operation, Id};
+use iced::widget::operation;
 use iced::window;
 use iced::{
-    widget::{Column, Container, Grid, Image, Row, Scrollable, Stack, Svg, Text},
-    Color, ContentFit, Element, Event, Length, Subscription, Task,
+    widget::{Column, Container, Grid, Row, Scrollable, Stack, Text},
+    Color, Element, Event, Length, Subscription, Task,
 };
 use rayon::prelude::*;
 use std::path::PathBuf;
-use urlencoding::decode;
 use uuid::Uuid;
 
 use crate::assets::get_default_icon;
 use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
 use crate::focus_manager::{monitor_app_process, MonitorTarget};
+use crate::game_image_fetcher::GameImageFetcher;
 use crate::game_sources::scan_games;
 use crate::gamepad::gamepad_subscription;
 use crate::icons;
 use crate::image_cache::ImageCache;
 use crate::input::Action;
-use crate::launcher::launch_app;
+use crate::launcher::{launch_app, resolve_monitor_target};
 use crate::model::{AppEntry, Category, LauncherAction, LauncherItem, SystemIcon};
 use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config};
 use crate::system_update::run_update;
-use tracing::{error, info, warn};
-
-struct AppPickerState {
-    selected_index: usize,
-    cols: usize,
-    scrollable_id: Id,
-    scroll_offset: f32,
-    viewport_height: f32,
-}
-
-impl AppPickerState {
-    fn new() -> Self {
-        Self {
-            selected_index: 0,
-            cols: 6,
-            scrollable_id: Id::unique(),
-            scroll_offset: 0.0,
-            viewport_height: 0.0,
-        }
-    }
-}
+use crate::ui_app_picker::{render_app_picker, AppPickerState};
+use crate::ui_components::{render_icon, IconPath};
+use crate::ui_modals::{render_context_menu, render_help_modal};
+use crate::ui_theme::*;
+use tracing::{info, warn};
 
 enum ModalState {
     None,
@@ -81,45 +64,6 @@ pub struct Launcher {
     game_running: bool,
 }
 
-const GAME_POSTER_WIDTH: f32 = 200.0;
-const GAME_POSTER_HEIGHT: f32 = 300.0;
-
-// App/System icon dimensions
-const ICON_SIZE: f32 = 128.0;
-
-// Custom font
-const SANSATION: iced::Font = iced::Font::with_name("Sansation");
-const ICON_ITEM_WIDTH: f32 = 150.0; // Increased to allow padding
-const ICON_ITEM_HEIGHT: f32 = 280.0; // Increased to allow text wrapping
-const COLOR_BACKGROUND: Color = Color::from_rgb(0.05, 0.05, 0.05);
-const COLOR_PANEL: Color = Color::from_rgb(0.1, 0.1, 0.1);
-const COLOR_MENU_BACKGROUND: Color = Color::from_rgb(0.15, 0.15, 0.15);
-const COLOR_STATUS_BACKGROUND: Color = Color::from_rgb(0.12, 0.12, 0.12);
-const COLOR_TEXT_MUTED: Color = Color::from_rgb(0.7, 0.7, 0.7);
-const COLOR_TEXT_HINT: Color = Color::from_rgb(0.6, 0.6, 0.6);
-const COLOR_TEXT_DIM: Color = Color::from_rgb(0.5, 0.5, 0.5);
-const COLOR_TEXT_SOFT: Color = Color::from_rgb(0.8, 0.8, 0.8);
-const COLOR_TEXT_BRIGHT: Color = Color::from_rgb(0.9, 0.9, 0.9);
-const COLOR_ACCENT: Color = Color::from_rgb(0.2, 0.4, 0.8);
-const COLOR_ACCENT_OVERLAY: Color = Color::from_rgba(0.2, 0.4, 0.8, 0.3);
-const COLOR_OVERLAY: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.7);
-const COLOR_OVERLAY_STRONG: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.8);
-const COLOR_STATUS_TEXT: Color = Color::from_rgb(0.9, 0.8, 0.4);
-
-enum IconPath<'a> {
-    Str(&'a str),
-    Path(&'a std::path::Path),
-}
-
-impl IconPath<'_> {
-    fn is_svg(&self) -> bool {
-        match self {
-            IconPath::Str(path) => path.ends_with(".svg"),
-            IconPath::Path(path) => path.extension() == Some(std::ffi::OsStr::new("svg")),
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum Message {
     AppsLoaded(Result<Vec<AppEntry>, String>),
@@ -133,7 +77,7 @@ pub enum Message {
     AvailableAppsLoaded(Vec<DesktopApp>),
     AddSelectedApp,
     CloseAppPicker,
-    AppPickerScrolled(Viewport),
+    AppPickerScrolled(iced::widget::scrollable::Viewport),
     GameExited,
     WindowOpened(window::Id),
     WindowFocused(window::Id),
@@ -141,7 +85,6 @@ pub enum Message {
 }
 
 impl Launcher {
-    // ... existing new, title, update methods ...
     pub fn new() -> (Self, Task<Message>) {
         let default_icon = get_default_icon().map(iced::widget::svg::Handle::from_memory);
         let config_path = config_path().ok().map(|path| path.display().to_string());
@@ -230,9 +173,13 @@ impl Launcher {
                 if let Some(cache) = &self.image_cache {
                     let target_width = (GAME_POSTER_WIDTH as f64 * self.scale_factor) as u32;
                     let target_height = (GAME_POSTER_HEIGHT as f64 * self.scale_factor) as u32;
-                    let sgdb_client_template = self.sgdb_client.clone();
-                    let searxng_client_template = self.searxng_client.clone();
-                    let cache_dir_template = cache.cache_dir.clone();
+                    let pipeline_template = GameImageFetcher::new(
+                        cache.cache_dir.clone(),
+                        self.sgdb_client.clone(),
+                        self.searxng_client.clone(),
+                        target_width,
+                        target_height,
+                    );
 
                     tasks = self
                         .games
@@ -241,22 +188,15 @@ impl Launcher {
                             let game_id = game.id;
                             let game_name = game.name.clone();
                             let source_image_url = game.source_image_url.clone();
-                            let sgdb_client = sgdb_client_template.clone();
-                            let searxng_client = searxng_client_template.clone();
-                            let cache_dir = cache_dir_template.clone();
+                            let pipeline = pipeline_template.clone();
 
                             Task::perform(
                                 async move {
                                     tokio::task::spawn_blocking(move || {
-                                        fetch_game_image(
-                                            sgdb_client,
-                                            searxng_client,
-                                            cache_dir,
+                                        pipeline.fetch(
                                             game_id,
-                                            game_name,
-                                            source_image_url,
-                                            target_width,
-                                            target_height,
+                                            &game_name,
+                                            source_image_url.as_deref(),
                                         )
                                     })
                                     .await
@@ -337,26 +277,7 @@ impl Launcher {
                     Self::sort_items(&mut self.apps);
                     self.clamp_selected_index();
 
-                    // Save config
-                    let apps_to_save: Vec<AppEntry> = self
-                        .apps
-                        .iter()
-                        .filter_map(|item| match &item.action {
-                            LauncherAction::Launch { exec } => Some(AppEntry {
-                                id: item.id,
-                                name: item.name.clone(),
-                                exec: exec.clone(),
-                                icon: item.icon.clone(),
-                                game_executable: item.game_executable.clone(),
-                            }),
-                            _ => None,
-                        })
-                        .collect();
-
-                    match save_config(&apps_to_save) {
-                        Ok(_) => info!("Added app: {}", selected_app.name),
-                        Err(err) => warn!("Failed to save config after adding app: {}", err),
-                    }
+                    self.save_apps_config("Added", "adding", &selected_app.name);
 
                     // Remove from available apps and close picker
                     self.available_apps.remove(selected_index);
@@ -461,280 +382,24 @@ impl Launcher {
             })
             .into();
 
+        self.render_with_modal(main_content)
+    }
+
+    fn render_with_modal<'a>(&'a self, main_content: Element<'a, Message>) -> Element<'a, Message> {
+        if let Some(overlay) = self.render_modal_layer() {
+            Stack::new().push(main_content).push(overlay).into()
+        } else {
+            main_content
+        }
+    }
+
+    fn render_modal_layer(&self) -> Option<Element<'_, Message>> {
         match &self.modal {
-            ModalState::ContextMenu { index } => Stack::new()
-                .push(main_content)
-                .push(self.render_context_menu(*index))
-                .into(),
-            ModalState::AppPicker(state) => Stack::new()
-                .push(main_content)
-                .push(self.render_app_picker(state))
-                .into(),
-            ModalState::Help => Stack::new()
-                .push(main_content)
-                .push(self.render_help_modal())
-                .into(),
-            ModalState::None => main_content,
+            ModalState::ContextMenu { index } => Some(render_context_menu(*index, self.category)),
+            ModalState::AppPicker(state) => Some(render_app_picker(state, &self.available_apps)),
+            ModalState::Help => Some(render_help_modal()),
+            ModalState::None => None,
         }
-    }
-
-    fn render_context_menu(&self, selected_index: usize) -> Element<'_, Message> {
-        let menu_items: Vec<&str> = match self.category {
-            Category::Apps => vec!["Launch", "Remove Entry", "Quit Launcher", "Close"],
-            Category::Games | Category::System => vec!["Launch", "Quit Launcher", "Close"],
-        };
-        let mut column = Column::new().spacing(10).padding(20);
-
-        for (i, item) in menu_items.iter().enumerate() {
-            let is_selected = i == selected_index;
-            let text = Text::new(*item)
-                .font(SANSATION)
-                .size(20)
-                .color(if is_selected {
-                    Color::WHITE
-                } else {
-                    COLOR_TEXT_MUTED
-                })
-                .align_x(Horizontal::Center);
-
-            let container = Container::new(text)
-                .padding(10)
-                .width(Length::Fill)
-                .style(move |_| {
-                    if is_selected {
-                        iced::widget::container::Style {
-                            background: Some(COLOR_ACCENT.into()),
-                            text_color: Some(Color::WHITE),
-                            ..Default::default()
-                        }
-                    } else {
-                        iced::widget::container::Style {
-                            text_color: Some(COLOR_TEXT_MUTED),
-                            ..Default::default()
-                        }
-                    }
-                });
-
-            column = column.push(container);
-        }
-
-        let menu_box = Container::new(column)
-            .width(Length::Fixed(300.0))
-            .style(|_| iced::widget::container::Style {
-                background: Some(COLOR_MENU_BACKGROUND.into()),
-                border: iced::Border {
-                    color: Color::WHITE,
-                    width: 1.0,
-                    radius: 10.0.into(),
-                },
-                ..Default::default()
-            });
-
-        Container::new(menu_box)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .style(|_| iced::widget::container::Style {
-                background: Some(COLOR_OVERLAY.into()),
-                ..Default::default()
-            })
-            .into()
-    }
-
-    fn render_app_picker(&self, state: &AppPickerState) -> Element<'_, Message> {
-        let title = Text::new("Add Application")
-            .font(SANSATION)
-            .size(28)
-            .color(Color::WHITE);
-
-        let title_container = Container::new(title)
-            .padding(20)
-            .width(Length::Fill)
-            .center_x(Length::Fill);
-
-        let content: Element<'_, Message> = if self.available_apps.is_empty() {
-            Container::new(
-                Text::new("No applications found")
-                    .font(SANSATION)
-                    .size(18)
-                    .color(COLOR_TEXT_MUTED),
-            )
-            .padding(40)
-            .center_x(Length::Fill)
-            .into()
-        } else {
-            let mut grid = Grid::new()
-                .columns(state.cols)
-                .spacing(10)
-                .height(Length::Shrink);
-
-            for (i, app) in self.available_apps.iter().enumerate() {
-                let is_selected = i == state.selected_index;
-                grid = grid.push(self.render_picker_item(app, is_selected));
-            }
-
-            Scrollable::new(grid)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .id(state.scrollable_id.clone())
-                .on_scroll(Message::AppPickerScrolled)
-                .into()
-        };
-
-        let hint = Text::new("Enter: Add | Escape: Close")
-            .font(SANSATION)
-            .size(14)
-            .color(COLOR_TEXT_HINT);
-
-        let hint_container = Container::new(hint)
-            .padding(10)
-            .width(Length::Fill)
-            .center_x(Length::Fill);
-
-        let picker_column = Column::new()
-            .push(title_container)
-            .push(content)
-            .push(hint_container)
-            .spacing(10);
-
-        let picker_box = Container::new(picker_column)
-            .width(Length::FillPortion(80))
-            .height(Length::FillPortion(80))
-            .padding(20)
-            .style(|_| iced::widget::container::Style {
-                background: Some(COLOR_PANEL.into()),
-                border: iced::Border {
-                    color: Color::WHITE,
-                    width: 1.0,
-                    radius: 10.0.into(),
-                },
-                ..Default::default()
-            });
-
-        Container::new(picker_box)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .style(|_| iced::widget::container::Style {
-                background: Some(COLOR_OVERLAY_STRONG.into()),
-                ..Default::default()
-            })
-            .into()
-    }
-
-    fn render_icon(
-        &self,
-        icon_path: Option<IconPath<'_>>,
-        width: f32,
-        height: f32,
-        fallback_text: &'static str,
-        fallback_size: Option<u32>,
-    ) -> Element<'_, Message> {
-        if let Some(icon_path) = icon_path {
-            let is_svg = icon_path.is_svg();
-            match icon_path {
-                IconPath::Str(path) => {
-                    if is_svg {
-                        return Svg::from_path(path)
-                            .width(Length::Fixed(width))
-                            .height(Length::Fixed(height))
-                            .into();
-                    }
-
-                    return Image::new(path)
-                        .width(Length::Fixed(width))
-                        .height(Length::Fixed(height))
-                        .content_fit(ContentFit::Contain)
-                        .into();
-                }
-                IconPath::Path(path) => {
-                    if is_svg {
-                        return Svg::from_path(path.to_path_buf())
-                            .width(Length::Fixed(width))
-                            .height(Length::Fixed(height))
-                            .into();
-                    }
-
-                    return Image::new(path.to_path_buf())
-                        .width(Length::Fixed(width))
-                        .height(Length::Fixed(height))
-                        .content_fit(ContentFit::Contain)
-                        .into();
-                }
-            }
-        }
-
-        if let Some(handle) = self.default_icon_handle.clone() {
-            Svg::new(handle)
-                .width(Length::Fixed(width))
-                .height(Length::Fixed(height))
-                .into()
-        } else {
-            let text = match fallback_size {
-                Some(size) => Text::new(fallback_text)
-                    .font(SANSATION)
-                    .size(size)
-                    .color(Color::WHITE),
-                None => Text::new(fallback_text).font(SANSATION).color(Color::WHITE),
-            };
-
-            Container::new(text)
-                .width(Length::Fixed(width))
-                .height(Length::Fixed(height))
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
-                .into()
-        }
-    }
-
-    fn render_picker_item(&self, app: &DesktopApp, is_selected: bool) -> Element<'_, Message> {
-        let icon_widget = self.render_icon(
-            app.icon_path.as_deref().map(IconPath::Path),
-            ICON_SIZE,
-            ICON_SIZE,
-            "?",
-            Some(48),
-        );
-
-        let icon_container = Container::new(icon_widget).padding(6);
-
-        let label = Text::new(app.name.clone())
-            .font(SANSATION)
-            .width(Length::Fixed(ICON_ITEM_WIDTH))
-            .align_x(Horizontal::Center)
-            .color(Color::WHITE)
-            .size(12);
-
-        let content = Column::new()
-            .push(icon_container)
-            .push(label)
-            .align_x(iced::Alignment::Center)
-            .spacing(5);
-
-        Container::new(content)
-            .width(Length::Fixed(ICON_ITEM_WIDTH))
-            .height(Length::Fixed(ICON_ITEM_HEIGHT))
-            .padding(6)
-            .align_x(Horizontal::Center)
-            .align_y(iced::alignment::Vertical::Center)
-            .style(move |_theme| {
-                if is_selected {
-                    iced::widget::container::Style {
-                        border: iced::Border {
-                            color: COLOR_ACCENT,
-                            width: 2.0,
-                            radius: 4.0.into(),
-                        },
-                        background: Some(COLOR_ACCENT_OVERLAY.into()),
-                        ..Default::default()
-                    }
-                } else {
-                    iced::widget::container::Style::default()
-                }
-            })
-            .into()
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -788,16 +453,22 @@ impl Launcher {
         Subscription::batch(vec![gamepad, keyboard, window_events])
     }
 
+    fn handle_modal_navigation(&mut self, action: Action) -> Option<Task<Message>> {
+        match &self.modal {
+            ModalState::Help => Some(self.handle_help_modal_navigation(action)),
+            ModalState::ContextMenu { .. } => Some(self.handle_context_menu_navigation(action)),
+            ModalState::AppPicker(_) => Some(self.handle_app_picker_navigation(action)),
+            ModalState::None => None,
+        }
+    }
+
     fn handle_navigation(&mut self, action: Action) -> Task<Message> {
         if action == Action::Quit {
             std::process::exit(0);
         }
 
-        match &self.modal {
-            ModalState::Help => return self.handle_help_modal_navigation(action),
-            ModalState::ContextMenu { .. } => return self.handle_context_menu_navigation(action),
-            ModalState::AppPicker(_) => return self.handle_app_picker_navigation(action),
-            ModalState::None => {}
+        if let Some(task) = self.handle_modal_navigation(action) {
+            return task;
         }
 
         match action {
@@ -842,32 +513,21 @@ impl Launcher {
                 return self.activate_selected();
             }
             _ => {
-                Self::navigate_grid(&mut self.selected_index, action, self.cols, list_len);
+                self.selected_index =
+                    Self::next_grid_index(self.selected_index, action, self.cols, list_len);
             }
         }
 
         Task::none()
     }
 
-    fn navigate_grid(index: &mut usize, action: Action, cols: usize, len: usize) -> bool {
+    fn next_grid_index(current: usize, action: Action, cols: usize, len: usize) -> usize {
         match action {
-            Action::Up if *index >= cols => {
-                *index -= cols;
-                true
-            }
-            Action::Down if *index + cols < len => {
-                *index += cols;
-                true
-            }
-            Action::Left if *index > 0 => {
-                *index -= 1;
-                true
-            }
-            Action::Right if *index + 1 < len => {
-                *index += 1;
-                true
-            }
-            _ => false,
+            Action::Up if current >= cols => current - cols,
+            Action::Down if current + cols < len => current + cols,
+            Action::Left if current > 0 => current - 1,
+            Action::Right if current + 1 < len => current + 1,
+            _ => current,
         }
     }
 
@@ -905,28 +565,7 @@ impl Launcher {
                             let removed = self.apps.remove(self.selected_index);
                             self.clamp_selected_index();
 
-                            match save_config(
-                                &self
-                                    .apps
-                                    .iter()
-                                    .map(|item| AppEntry {
-                                        id: item.id,
-                                        name: item.name.clone(),
-                                        icon: item.icon.clone(),
-                                        exec: match &item.action {
-                                            LauncherAction::Launch { exec } => exec.clone(),
-                                            LauncherAction::SystemUpdate
-                                            | LauncherAction::Shutdown
-                                            | LauncherAction::Suspend
-                                            | LauncherAction::Exit => unreachable!(),
-                                        },
-                                        game_executable: item.game_executable.clone(),
-                                    })
-                                    .collect::<Vec<_>>(),
-                            ) {
-                                Ok(_) => info!("Removed app: {}", removed.name),
-                                Err(err) => warn!("Failed to save config after removal: {}", err),
-                            }
+                            self.save_apps_config("Removed", "removing", &removed.name);
                         }
                     }
                     (_, _) => {
@@ -1000,7 +639,7 @@ impl Launcher {
         if let Some(y) = target_y {
             operation::scroll_to(
                 state.scrollable_id.clone(),
-                AbsoluteOffset {
+                iced::widget::scrollable::AbsoluteOffset {
                     x: 0.0,
                     y: y.max(0.0),
                 },
@@ -1036,7 +675,7 @@ impl Launcher {
                 return self.update(Message::CloseAppPicker);
             }
             _ => {
-                Self::navigate_grid(&mut selected_index, action, cols, list_len);
+                selected_index = Self::next_grid_index(selected_index, action, cols, list_len);
             }
         }
 
@@ -1063,62 +702,8 @@ impl Launcher {
 
         match action {
             LauncherAction::Launch { exec } => {
-                // Check if it's a Steam game launch
-                let steam_launch_prefix = "steam -applaunch ";
-                let heroic_launch_prefix = "xdg-open heroic://launch/";
-
-                let monitor_target = if exec.starts_with(steam_launch_prefix) {
-                    let appid = exec
-                        .trim_start_matches(steam_launch_prefix)
-                        .trim()
-                        .to_string();
-                    // We still launch the steam command, but we monitor the AppId
-                    Some(MonitorTarget::SteamAppId(appid))
-                } else if exec.starts_with(heroic_launch_prefix) {
-                    let url_part = exec.trim_start_matches(heroic_launch_prefix).trim();
-                    let parts: Vec<&str> = url_part.split('/').collect();
-
-                    let mut app_name = None;
-
-                    if parts.len() >= 2 {
-                        // store/app_name
-                        if let Ok(decoded) = decode(parts[1]) {
-                            app_name = Some(decoded.to_string());
-                        }
-                    } else if parts.len() == 1 {
-                        // app_name
-                        if let Ok(decoded) = decode(parts[0]) {
-                            app_name = Some(decoded.to_string());
-                        }
-                    }
-
-                    if let Some(name) = app_name {
-                        info!("Detected Heroic launch for app: {}", name);
-
-                        let mut targets = vec![
-                            MonitorTarget::EnvVarEq("LEGENDARY_GAME_ID".to_string(), name.clone()),
-                            MonitorTarget::EnvVarEq("HeroicAppName".to_string(), name.clone()),
-                            MonitorTarget::CmdLineContains(item_name.clone()),
-                        ];
-
-                        // Add exact executable match if available
-                        if let Some(exe) = game_executable {
-                            info!("Monitoring executable for {}: {}", name, exe);
-                            targets.push(MonitorTarget::CmdLineContains(exe));
-                        }
-
-                        let sanitized_name = item_name.replace(":", "");
-                        if sanitized_name != item_name {
-                            targets.push(MonitorTarget::CmdLineContains(sanitized_name));
-                        }
-
-                        Some(MonitorTarget::Any(targets))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
+                let monitor_target =
+                    resolve_monitor_target(&exec, &item_name, game_executable.as_ref());
 
                 match launch_app(&exec) {
                     Ok(pid) => {
@@ -1373,12 +958,13 @@ impl Launcher {
                 SystemIcon::ExitBracket => icons::exit_icon(image_width),
             }
         } else {
-            self.render_icon(
+            render_icon(
                 item.icon.as_deref().map(IconPath::Str),
                 image_width,
                 image_height,
                 "ICON",
                 None,
+                self.default_icon_handle.clone(),
             )
         };
 
@@ -1449,153 +1035,31 @@ impl Launcher {
             .into()
     }
 
-    fn render_help_modal(&self) -> Element<'_, Message> {
-        let title = Text::new("Controller Bindings")
-            .font(SANSATION)
-            .size(28)
-            .color(Color::WHITE);
-
-        let title_container = Container::new(title)
-            .padding(20)
-            .width(Length::Fill)
-            .center_x(Length::Fill);
-
-        // Gamepad bindings
-        let gamepad_bindings = vec![
-            ("A / South", "Select / Confirm"),
-            ("B / East", "Back / Cancel"),
-            ("X / West", "Context Menu"),
-            ("D-Pad / Left Stick", "Navigate"),
-            ("LB / LT", "Previous Category"),
-            ("RB / RT", "Next Category"),
-            ("− / Select", "Show/Hide Controls"),
-        ];
-
-        // Keyboard bindings
-        let keyboard_bindings = vec![
-            ("Arrow Keys", "Navigate"),
-            ("Enter", "Select / Confirm"),
-            ("Escape", "Back / Cancel"),
-            ("Tab", "Next Category"),
-            ("C", "Context Menu"),
-            ("+ / A", "Add App (in Apps)"),
-            ("−", "Show/Hide Controls"),
-            ("F4", "Quit Launcher"),
-        ];
-
-        let mut content_column = Column::new().spacing(8);
-
-        // Gamepad section header
-        content_column = content_column.push(
-            Text::new("Gamepad")
-                .font(SANSATION)
-                .size(18)
-                .color(COLOR_TEXT_SOFT),
-        );
-
-        // Gamepad bindings
-        for (button, action) in gamepad_bindings {
-            let row = Row::new()
-                .push(
-                    Container::new(
-                        Text::new(button)
-                            .font(SANSATION)
-                            .size(16)
-                            .color(COLOR_TEXT_BRIGHT),
-                    )
-                    .width(Length::Fixed(200.0)),
-                )
-                .push(
-                    Text::new(action)
-                        .font(SANSATION)
-                        .size(16)
-                        .color(COLOR_TEXT_MUTED),
-                )
-                .spacing(20);
-            content_column = content_column.push(row);
+    fn save_apps_config(&self, success_action: &str, failure_action: &str, app_name: &str) {
+        let apps_to_save = Self::app_entries_from_items(&self.apps);
+        match save_config(&apps_to_save) {
+            Ok(_) => info!("{} app: {}", success_action, app_name),
+            Err(err) => warn!(
+                "Failed to save config after {} app {}: {}",
+                failure_action, app_name, err
+            ),
         }
+    }
 
-        // Spacer
-        content_column =
-            content_column.push(Container::new(Text::new("")).height(Length::Fixed(16.0)));
-
-        // Keyboard section header
-        content_column = content_column.push(
-            Text::new("Keyboard")
-                .font(SANSATION)
-                .size(18)
-                .color(COLOR_TEXT_SOFT),
-        );
-
-        // Keyboard bindings
-        for (key, action) in keyboard_bindings {
-            let row = Row::new()
-                .push(
-                    Container::new(
-                        Text::new(key)
-                            .font(SANSATION)
-                            .size(16)
-                            .color(COLOR_TEXT_BRIGHT),
-                    )
-                    .width(Length::Fixed(200.0)),
-                )
-                .push(
-                    Text::new(action)
-                        .font(SANSATION)
-                        .size(16)
-                        .color(COLOR_TEXT_MUTED),
-                )
-                .spacing(20);
-            content_column = content_column.push(row);
-        }
-
-        let scrollable_content = Scrollable::new(content_column)
-            .width(Length::Fill)
-            .height(Length::Fill);
-
-        // Hint at bottom
-        let hint = Text::new("Press B or − to close")
-            .font(SANSATION)
-            .size(14)
-            .color(COLOR_TEXT_HINT);
-
-        let hint_container = Container::new(hint)
-            .padding(10)
-            .width(Length::Fill)
-            .center_x(Length::Fill);
-
-        let modal_column = Column::new()
-            .push(title_container)
-            .push(scrollable_content)
-            .push(hint_container)
-            .spacing(10);
-
-        // Modal box
-        let modal_box = Container::new(modal_column)
-            .width(Length::Fixed(500.0))
-            .height(Length::FillPortion(70))
-            .padding(20)
-            .style(|_| iced::widget::container::Style {
-                background: Some(COLOR_PANEL.into()),
-                border: iced::Border {
-                    color: Color::WHITE,
-                    width: 1.0,
-                    radius: 10.0.into(),
-                },
-                ..Default::default()
-            });
-
-        // Overlay container with semi-transparent background
-        Container::new(modal_box)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .style(|_| iced::widget::container::Style {
-                background: Some(COLOR_OVERLAY_STRONG.into()),
-                ..Default::default()
+    fn app_entries_from_items(items: &[LauncherItem]) -> Vec<AppEntry> {
+        items
+            .iter()
+            .filter_map(|item| match &item.action {
+                LauncherAction::Launch { exec } => Some(AppEntry {
+                    id: item.id,
+                    name: item.name.clone(),
+                    exec: exec.clone(),
+                    icon: item.icon.clone(),
+                    game_executable: item.game_executable.clone(),
+                }),
+                _ => None,
             })
-            .into()
+            .collect()
     }
 
     fn sort_items(items: &mut [LauncherItem]) {
@@ -1609,132 +1073,6 @@ impl Launcher {
             "No apps configured.".to_string()
         }
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn fetch_game_image(
-    sgdb_client: SteamGridDbClient,
-    searxng_client: SearxngClient,
-    cache_dir: PathBuf,
-    game_id: Uuid,
-    game_name: String,
-    source_image_url: Option<String>,
-    width: u32,
-    height: u32,
-) -> anyhow::Result<Option<(Uuid, PathBuf)>> {
-    let cache = ImageCache {
-        cache_dir: cache_dir.clone(),
-    };
-
-    // 1. Check cache first
-    if let Some(path) = cache.find_existing_image(&game_name) {
-        info!("Cache hit for '{}': {:?}", game_name, path);
-        return Ok(Some((game_id, path)));
-    }
-
-    // 2. Try source image URL (from Heroic) if available
-    if let Some(url) = &source_image_url {
-        info!("Trying Heroic image URL for '{}': {}", game_name, url);
-        match cache.save_image(&game_name, url, width, height) {
-            Ok(path) => {
-                info!(
-                    "Successfully saved Heroic image for '{}' to {:?}",
-                    game_name, path
-                );
-                return Ok(Some((game_id, path)));
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to download Heroic image for '{}': {}, trying SteamGridDB...",
-                    game_name, e
-                );
-            }
-        }
-    }
-
-    // 3. Try SteamGridDB (primary API source)
-    info!("Fetching image for '{}' from SteamGridDB...", game_name);
-    match sgdb_client.search_game(&game_name) {
-        Ok(Some(sgdb_id)) => {
-            info!("Found SteamGridDB ID for '{}': {}", game_name, sgdb_id);
-            match sgdb_client.get_images_for_game(sgdb_id) {
-                Ok(images) => {
-                    if let Some(first_image) = images.first() {
-                        info!("Downloading image for '{}': {}", game_name, first_image.url);
-                        match cache.save_image(&game_name, &first_image.url, width, height) {
-                            Ok(path) => {
-                                info!(
-                                    "Successfully saved SteamGridDB image for '{}' to {:?}",
-                                    game_name, path
-                                );
-                                return Ok(Some((game_id, path)));
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "Failed to save SteamGridDB image for '{}': {}, trying SearXNG...",
-                                    game_name, e
-                                );
-                            }
-                        }
-                    } else {
-                        warn!(
-                            "No images found on SteamGridDB for '{}' (ID: {}), trying SearXNG...",
-                            game_name, sgdb_id
-                        );
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to get SteamGridDB images for '{}': {}, trying SearXNG...",
-                        game_name, e
-                    );
-                }
-            }
-        }
-        Ok(None) => {
-            warn!(
-                "Game not found on SteamGridDB: '{}', trying SearXNG...",
-                game_name
-            );
-        }
-        Err(e) => {
-            warn!(
-                "Failed to search SteamGridDB for '{}': {}, trying SearXNG...",
-                game_name, e
-            );
-        }
-    }
-
-    // 4. Fall back to SearXNG image search
-    let search_query = format!("{} game cover", game_name);
-    info!("Searching SearXNG for '{}' cover art...", game_name);
-    match searxng_client.search_image(&search_query) {
-        Ok(Some(url)) => {
-            info!("Found SearXNG image for '{}': {}", game_name, url);
-            match cache.save_image(&game_name, &url, width, height) {
-                Ok(path) => {
-                    info!(
-                        "Successfully saved SearXNG image for '{}' to {:?}",
-                        game_name, path
-                    );
-                    return Ok(Some((game_id, path)));
-                }
-                Err(e) => {
-                    error!("Failed to save SearXNG image for '{}': {}", game_name, e);
-                }
-            }
-        }
-        Ok(None) => {
-            warn!("No images found on SearXNG for '{}'", game_name);
-        }
-        Err(e) => {
-            error!("Failed to search SearXNG for '{}': {}", game_name, e);
-        }
-    }
-
-    // No image found from any source
-    warn!("Could not find any cover art for '{}'", game_name);
-    Ok(None)
 }
 
 #[cfg(test)]
@@ -1756,19 +1094,17 @@ mod tests {
 
     #[test]
     fn test_navigate_grid_moves_within_bounds() {
-        let mut index = 5;
-        let moved = Launcher::navigate_grid(&mut index, Action::Up, 3, 10);
+        let index = 5;
+        let new_index = Launcher::next_grid_index(index, Action::Up, 3, 10);
 
-        assert!(moved);
-        assert_eq!(index, 2);
+        assert_eq!(new_index, 2);
     }
 
     #[test]
     fn test_navigate_grid_blocks_out_of_bounds() {
-        let mut index = 1;
-        let moved = Launcher::navigate_grid(&mut index, Action::Up, 3, 10);
+        let index = 1;
+        let new_index = Launcher::next_grid_index(index, Action::Up, 3, 10);
 
-        assert!(!moved);
-        assert_eq!(index, 1);
+        assert_eq!(new_index, 1);
     }
 }

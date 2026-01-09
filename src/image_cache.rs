@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub struct ImageCache {
     pub cache_dir: PathBuf,
 }
