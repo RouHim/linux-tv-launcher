@@ -21,7 +21,7 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
                 return;
             }
 
-            let Some((program, args)) = get_update_command() else {
+            let Some((program, args, use_pkexec)) = get_update_command() else {
                 send_failed(
                     &mut output,
                     "No supported package manager found".to_string(),
@@ -32,10 +32,19 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
 
             info!("Starting system update using: {} {:?}", program, args);
 
-            let mut cmd = Command::new("pkexec");
-            cmd.arg(program).args(&args);
+            let mut cmd = if use_pkexec {
+                let mut c = Command::new("pkexec");
+                c.arg(program).args(&args);
+                c
+            } else {
+                let mut c = Command::new(program);
+                c.args(&args);
+                c
+            };
+
             cmd.stdout(Stdio::piped());
             cmd.stderr(Stdio::piped());
+            cmd.stdin(Stdio::null()); // Ensure we don't hang if the process asks for input
             cmd.kill_on_drop(true);
 
             let mut updated_packages: Vec<String> = Vec::new();
@@ -61,8 +70,8 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
                     let mut stderr_buf = Vec::new();
                     let mut read_buf_stdout = [0u8; 1024];
                     let mut read_buf_stderr = [0u8; 1024];
-                    let mut stdout_done = false;
-                    let mut stderr_done = false;
+                    let stdout_done = false;
+                    let stderr_done = false;
                     let mut child_status: Option<Result<std::process::ExitStatus, std::io::Error>> =
                         None;
 
@@ -71,18 +80,10 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
                             res = stdout.read(&mut read_buf_stdout), if !stdout_done => {
                                 match res {
                                     Ok(0) => {
-                                        stdout_done = true;
-                                        if let Some(msg) = flush_output_buffer(&mut stdout_buf, &mut output, &mut updated_packages).await {
-                                            send_failed(&mut output, msg).await;
-                                            return;
-                                        }
+                                        flush_output_buffer(&mut stdout_buf, &mut output, &mut updated_packages).await;
                                     }
-                                    Ok(n) => {
-                                        stdout_buf.extend_from_slice(&read_buf_stdout[..n]);
-                                        if let Some(msg) = process_output_buffer(&mut stdout_buf, &mut output, &mut updated_packages).await {
-                                            send_failed(&mut output, msg).await;
-                                            return;
-                                        }
+                                    Ok(_n) => {
+                                        process_output_buffer(&mut stdout_buf, &mut output, &mut updated_packages).await;
                                     }
                                     Err(e) => {
                                         error!("Error reading stdout: {}", e);
@@ -94,18 +95,10 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
                             res = stderr.read(&mut read_buf_stderr), if !stderr_done => {
                                 match res {
                                     Ok(0) => {
-                                        stderr_done = true;
-                                        if let Some(msg) = flush_output_buffer(&mut stderr_buf, &mut output, &mut updated_packages).await {
-                                            send_failed(&mut output, msg).await;
-                                            return;
-                                        }
+                                        flush_output_buffer(&mut stderr_buf, &mut output, &mut updated_packages).await;
                                     }
-                                    Ok(n) => {
-                                        stderr_buf.extend_from_slice(&read_buf_stderr[..n]);
-                                        if let Some(msg) = process_output_buffer(&mut stderr_buf, &mut output, &mut updated_packages).await {
-                                            send_failed(&mut output, msg).await;
-                                            return;
-                                        }
+                                    Ok(_n) => {
+                                        process_output_buffer(&mut stderr_buf, &mut output, &mut updated_packages).await;
                                     }
                                     Err(e) => {
                                         error!("Error reading stderr: {}", e);
@@ -181,13 +174,12 @@ async fn handle_child_exit(
     }
 }
 
-// Processes the buffer: extracts complete lines, parses them, and checks for prompt lines.
-// Returns Some(error_message) if manual intervention is detected.
+// Processes the buffer: extracts complete lines, parses them.
 async fn process_output_buffer(
     buffer: &mut Vec<u8>,
     sender: &mut iced::futures::channel::mpsc::Sender<SystemUpdateProgress>,
     updated_packages: &mut Vec<String>,
-) -> Option<String> {
+) {
     while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
         let line_bytes: Vec<u8> = buffer.drain(..=pos).collect();
         let line = String::from_utf8_lossy(&line_bytes);
@@ -195,70 +187,28 @@ async fn process_output_buffer(
         if trimmed.is_empty() {
             continue;
         }
-        if is_interactive_prompt_line(trimmed) {
-            return Some(format!(
-                "Manual intervention required.\nPrompt: {}",
-                trimmed
-            ));
-        }
         parse_output_line(trimmed, sender, updated_packages).await;
     }
-
-    let remaining = String::from_utf8_lossy(buffer);
-    if !remaining.is_empty() && !remaining.contains('\n') && is_interactive_prompt_line(&remaining)
-    {
-        return Some(format!(
-            "Manual intervention required.\nPrompt: {}",
-            remaining.trim()
-        ));
-    }
-    None
 }
 
 async fn flush_output_buffer(
     buffer: &mut Vec<u8>,
     sender: &mut iced::futures::channel::mpsc::Sender<SystemUpdateProgress>,
     updated_packages: &mut Vec<String>,
-) -> Option<String> {
+) {
     if buffer.is_empty() {
-        return None;
+        return;
     }
 
     let remaining = String::from_utf8_lossy(buffer).to_string();
     let trimmed = remaining.trim();
     if trimmed.is_empty() {
         buffer.clear();
-        return None;
-    }
-
-    if is_interactive_prompt_line(trimmed) {
-        buffer.clear();
-        return Some(format!(
-            "Manual intervention required.\nPrompt: {}",
-            trimmed
-        ));
+        return;
     }
 
     parse_output_line(trimmed, sender, updated_packages).await;
     buffer.clear();
-    None
-}
-
-fn is_interactive_prompt_line(text: &str) -> bool {
-    let t = text.trim();
-    if t.is_empty() {
-        return false;
-    }
-
-    if t.starts_with("::") {
-        return t.ends_with("[Y/n]") || t.ends_with("[y/N]");
-    }
-
-    if t.starts_with("Enter a selection") || t.starts_with("Enter a number") {
-        return t.ends_with(':') || t.ends_with("):");
-    }
-
-    false
 }
 
 async fn parse_output_line(
@@ -402,7 +352,7 @@ fn check_restart_required(packages: &[String]) -> bool {
     })
 }
 
-fn get_update_command() -> Option<(&'static str, Vec<&'static str>)> {
+fn get_update_command() -> Option<(&'static str, Vec<&'static str>, bool)> {
     if let Some(helper) = detect_aur_helper() {
         if helper == "yay" {
             Some((
@@ -412,15 +362,23 @@ fn get_update_command() -> Option<(&'static str, Vec<&'static str>)> {
                     "--noconfirm",
                     "--answerdiff=None",
                     "--answerclean=None",
+                    "--answeredit=None",
+                    "--answerupgrade=None",
+                    "--sudo",
+                    "pkexec",
                 ],
+                false, // Run as user, yay handles elevation via --sudo pkexec
             ))
-        } else if helper == "paru" {
-            Some(("paru", vec!["-Syu", "--noconfirm", "--skipreview"]))
         } else {
-            Some((helper, vec!["-Syu", "--noconfirm"]))
+            // par
+            Some((
+                "paru",
+                vec!["-Syu", "--noconfirm", "--skipreview", "--sudo", "pkexec"],
+                false, // Run as user, paru handles elevation
+            ))
         }
     } else if command_exists("pacman") {
-        Some(("pacman", vec!["-Syu", "--noconfirm"]))
+        Some(("pacman", vec!["-Syu", "--noconfirm"], true)) // Needs pkexec wrapper
     } else {
         warn!("No supported package manager found.");
         None
@@ -470,22 +428,5 @@ mod tests {
         let line = "==> Making package: topgrade-bin 16.8.0-1 (Sa 10 Jan 2026 13:23:20 CET)";
         let result = parse_building_package(line);
         assert_eq!(result, Some("topgrade-bin".to_string()));
-    }
-
-    #[test]
-    fn test_is_interactive_prompt() {
-        assert!(is_interactive_prompt_line(
-            ":: Proceed with installation? [Y/n]"
-        ));
-        assert!(is_interactive_prompt_line(":: Import PGP key 123? [y/N]"));
-        assert!(is_interactive_prompt_line(
-            "Enter a selection (default=all):"
-        ));
-        assert!(is_interactive_prompt_line("Enter a number (default=1):"));
-        assert!(!is_interactive_prompt_line("installing package..."));
-        assert!(!is_interactive_prompt_line(
-            "Downloading (default=all): file"
-        ));
-        assert!(!is_interactive_prompt_line("random [Y/n]"));
     }
 }
