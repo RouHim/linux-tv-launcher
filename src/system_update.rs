@@ -32,10 +32,6 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
 
             info!("Starting system update using: {} {:?}", program, args);
 
-            if crate::osk::show() {
-                info!("On-screen keyboard shown for password entry");
-            }
-
             let mut cmd = Command::new("pkexec");
             cmd.arg(program).args(&args);
             cmd.stdout(Stdio::piped());

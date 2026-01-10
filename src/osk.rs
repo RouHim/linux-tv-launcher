@@ -1,413 +1,423 @@
-//! On-Screen Keyboard (OSK) integration for TV/living room environments.
+//! On-Screen Keyboard (OSK) integration.
 //!
-//! This module provides a unified interface to show/hide on-screen keyboards
+//! Provides a unified interface to show/hide on-screen keyboards
 //! across different Linux desktop environments and Wayland compositors.
-//!
-//! Supported backends (in order of detection priority):
-//! - wvkbd: Lightweight OSK for wlroots compositors (Sway, Hyprland, etc.)
-//! - GNOME Shell: Built-in OSK via gsettings (accessibility)
-//! - Phosh/squeekboard: DBus-based OSK (sm.puri.OSK0)
-//! - KDE Plasma: Virtual keyboard via KWin DBus interface
-
-// Allow unused functions - these are part of the public API for future use
-#![allow(dead_code)]
 
 use std::env;
-use std::path::PathBuf;
 use std::process::Command;
-
 use tracing::{debug, info, warn};
 
-/// Detected on-screen keyboard backend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OskBackend {
-    /// wvkbd - signal-based OSK for wlroots compositors
-    Wvkbd,
-    /// GNOME Shell built-in OSK via gsettings
-    GnomeShell,
-    /// Phosh/squeekboard - DBus interface at sm.puri.OSK0
-    Squeekboard,
-    /// KDE Virtual Keyboard - DBus interface via KWin
-    KdePlasma,
+/// Manager for the On-Screen Keyboard.
+///
+/// Handles detection of the available OSK backend and manages its state.
+pub struct OskManager {
+    backend: Option<Box<dyn OskBackend>>,
+    /// Tracks if the OSK was enabled by this application (used for restoration on exit).
+    enabled_by_app: bool,
 }
 
-impl OskBackend {
-    /// Human-readable name for the backend.
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Wvkbd => "wvkbd",
-            Self::GnomeShell => "GNOME Shell OSK",
-            Self::Squeekboard => "squeekboard",
-            Self::KdePlasma => "KDE Virtual Keyboard",
+#[allow(dead_code)]
+impl OskManager {
+    /// Create a new OSK Manager and detect the available backend.
+    pub fn new() -> Self {
+        let backend = detect_backend();
+        Self {
+            backend,
+            enabled_by_app: false,
         }
     }
+
+    /// Show the on-screen keyboard.
+    pub fn show(&mut self) {
+        let Some(backend) = &self.backend else {
+            warn!("Cannot show OSK: no backend detected");
+            return;
+        };
+
+        info!("Showing on-screen keyboard ({})", backend.name());
+
+        // Check if we need to track state (currently primarily for GNOME)
+        // If the OSK is currently disabled, mark that we are enabling it.
+        if !self.enabled_by_app {
+            if let Ok(false) = backend.is_enabled() {
+                self.enabled_by_app = true;
+            }
+        }
+
+        if let Err(e) = backend.show() {
+            warn!("Failed to show OSK: {}", e);
+        }
+    }
+
+    /// Hide the on-screen keyboard.
+    pub fn hide(&self) {
+        let Some(backend) = &self.backend else {
+            return;
+        };
+
+        info!("Hiding on-screen keyboard ({})", backend.name());
+        if let Err(e) = backend.hide() {
+            warn!("Failed to hide OSK: {}", e);
+        }
+    }
+
+    /// Restore the OSK state if it was modified by the application.
+    ///
+    /// This should be called on application exit.
+    pub fn restore(&mut self) {
+        if self.enabled_by_app {
+            info!("Restoring OSK state (disabling on exit)");
+            if let Some(backend) = &self.backend {
+                if let Err(e) = backend.hide() {
+                    warn!("Failed to restore OSK state: {}", e);
+                }
+            }
+            self.enabled_by_app = false;
+        }
+    }
+
+    /// Check if an OSK backend is available.
+    pub fn is_available(&self) -> bool {
+        self.backend.is_some()
+    }
 }
 
-/// Detect available on-screen keyboard backend.
-///
-/// Returns `None` if no supported OSK is detected.
-pub fn detect_backend() -> Option<OskBackend> {
-    // Check for wvkbd first (common on wlroots compositors)
-    if is_wvkbd_available() {
+/// Trait representing an On-Screen Keyboard backend.
+trait OskBackend: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn show(&self) -> Result<(), String>;
+    fn hide(&self) -> Result<(), String>;
+    /// Check if the OSK is currently enabled/visible.
+    /// Returns error if check is not supported/failed.
+    fn is_enabled(&self) -> Result<bool, String>;
+}
+
+fn detect_backend() -> Option<Box<dyn OskBackend>> {
+    // 1. wvkbd
+    if WvkbdBackend::is_available() {
         debug!("Detected wvkbd OSK backend");
-        return Some(OskBackend::Wvkbd);
+        return Some(Box::new(WvkbdBackend));
     }
 
-    // Check for GNOME Shell (standard desktop GNOME)
-    if is_gnome_shell_available() {
+    // 2. GNOME Shell
+    if GnomeBackend::is_available() {
         debug!("Detected GNOME Shell OSK backend");
-        return Some(OskBackend::GnomeShell);
+        return Some(Box::new(GnomeBackend));
     }
 
-    // Check for Phosh/squeekboard via DBus
-    if is_squeekboard_available() {
+    // 3. Squeekboard
+    if SqueekboardBackend::is_available() {
         debug!("Detected squeekboard OSK backend");
-        return Some(OskBackend::Squeekboard);
+        return Some(Box::new(SqueekboardBackend));
     }
 
-    // Check for KDE Plasma virtual keyboard
-    if is_kde_plasma_available() {
+    // 4. KDE Plasma
+    if KdeBackend::is_available() {
         debug!("Detected KDE Plasma Virtual Keyboard backend");
-        return Some(OskBackend::KdePlasma);
+        return Some(Box::new(KdeBackend));
     }
 
     debug!("No on-screen keyboard backend detected");
     None
 }
 
-/// Show the on-screen keyboard.
-///
-/// Returns `true` if the keyboard was successfully shown (or the command was sent).
-pub fn show() -> bool {
-    let Some(backend) = detect_backend() else {
-        warn!("Cannot show OSK: no backend detected");
-        return false;
-    };
+// =============================================================================
+// wvkbd backend
+// =============================================================================
 
-    info!("Showing on-screen keyboard ({})", backend.name());
+struct WvkbdBackend;
 
-    match backend {
-        OskBackend::Wvkbd => show_wvkbd(),
-        OskBackend::GnomeShell => show_gnome_shell(),
-        OskBackend::Squeekboard => show_squeekboard(),
-        OskBackend::KdePlasma => show_kde_plasma(),
+impl WvkbdBackend {
+    fn is_available() -> bool {
+        Self::is_running() || command_exists("wvkbd-mobintl") || command_exists("wvkbd-deskintl")
+    }
+
+    fn is_running() -> bool {
+        check_pgrep("wvkbd-mobintl") || check_pgrep("wvkbd-deskintl")
+    }
+
+    fn get_pid() -> Option<i32> {
+        get_pid_by_name("wvkbd-mobintl").or_else(|| get_pid_by_name("wvkbd-deskintl"))
     }
 }
 
-/// Hide the on-screen keyboard.
-///
-/// Returns `true` if the keyboard was successfully hidden (or the command was sent).
-pub fn hide() -> bool {
-    let Some(backend) = detect_backend() else {
-        return false;
-    };
-
-    info!("Hiding on-screen keyboard ({})", backend.name());
-
-    match backend {
-        OskBackend::Wvkbd => hide_wvkbd(),
-        OskBackend::GnomeShell => hide_gnome_shell(),
-        OskBackend::Squeekboard => hide_squeekboard(),
-        OskBackend::KdePlasma => hide_kde_plasma(),
+impl OskBackend for WvkbdBackend {
+    fn name(&self) -> &'static str {
+        "wvkbd"
     }
-}
 
-/// Check if an on-screen keyboard is available on this system.
-pub fn is_available() -> bool {
-    detect_backend().is_some()
-}
-
-// =============================================================================
-// wvkbd backend (wlroots compositors: Sway, Hyprland, etc.)
-// =============================================================================
-
-/// Check if wvkbd is available (running or installed).
-fn is_wvkbd_available() -> bool {
-    is_wvkbd_running() || command_exists("wvkbd-mobintl") || command_exists("wvkbd-deskintl")
-}
-
-/// Check if wvkbd is currently running.
-fn is_wvkbd_running() -> bool {
-    Command::new("pgrep")
-        .args(["-x", "wvkbd-mobintl"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-        || Command::new("pgrep")
-            .args(["-x", "wvkbd-deskintl"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-}
-
-/// Get the PID of running wvkbd process.
-fn get_wvkbd_pid() -> Option<i32> {
-    for name in ["wvkbd-mobintl", "wvkbd-deskintl"] {
-        if let Ok(output) = Command::new("pgrep").args(["-x", name]).output() {
-            if output.status.success() {
-                let pid_str = String::from_utf8_lossy(&output.stdout);
-                if let Ok(pid) = pid_str.trim().parse::<i32>() {
-                    return Some(pid);
+    fn show(&self) -> Result<(), String> {
+        if let Some(pid) = Self::get_pid() {
+            // SIGUSR2 = show
+            run_command("kill", &["-USR2", &pid.to_string()])
+        } else {
+            // Start it
+            for binary in ["wvkbd-mobintl", "wvkbd-deskintl"] {
+                if command_exists(binary) {
+                    Command::new(binary).spawn().map_err(|e| e.to_string())?;
+                    return Ok(());
                 }
             }
+            Err("wvkbd binary not found".to_string())
         }
     }
-    None
-}
 
-/// Show wvkbd by sending SIGUSR2 signal.
-fn show_wvkbd() -> bool {
-    if let Some(pid) = get_wvkbd_pid() {
-        // SIGUSR2 = show
-        Command::new("kill")
-            .args(["-USR2", &pid.to_string()])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    } else {
-        // Try to start wvkbd if not running
-        start_wvkbd()
+    fn hide(&self) -> Result<(), String> {
+        if let Some(pid) = Self::get_pid() {
+            // SIGUSR1 = hide
+            run_command("kill", &["-USR1", &pid.to_string()])
+        } else {
+            Ok(())
+        }
+    }
+
+    fn is_enabled(&self) -> Result<bool, String> {
+        Err("Not supported".to_string())
     }
 }
 
-/// Hide wvkbd by sending SIGUSR1 signal.
-fn hide_wvkbd() -> bool {
-    if let Some(pid) = get_wvkbd_pid() {
-        // SIGUSR1 = hide
-        Command::new("kill")
-            .args(["-USR1", &pid.to_string()])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false)
-    } else {
-        true // Not running, nothing to hide
+// =============================================================================
+// GNOME Backend
+// =============================================================================
+
+struct GnomeBackend;
+
+impl GnomeBackend {
+    fn is_available() -> bool {
+        is_gnome_session()
+            && Command::new("gsettings")
+                .args([
+                    "get",
+                    "org.gnome.desktop.a11y.applications",
+                    "screen-keyboard-enabled",
+                ])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
     }
 }
 
-/// Start wvkbd if it's installed but not running.
-fn start_wvkbd() -> bool {
-    // Try mobintl first, then deskintl
-    for binary in ["wvkbd-mobintl", "wvkbd-deskintl"] {
-        if command_exists(binary) {
-            match Command::new(binary).spawn() {
-                Ok(_) => {
-                    info!("Started {} on-screen keyboard", binary);
-                    return true;
-                }
-                Err(e) => {
-                    warn!("Failed to start {}: {}", binary, e);
-                }
+impl OskBackend for GnomeBackend {
+    fn name(&self) -> &'static str {
+        "GNOME Shell OSK"
+    }
+
+    fn show(&self) -> Result<(), String> {
+        run_command(
+            "gsettings",
+            &[
+                "set",
+                "org.gnome.desktop.a11y.applications",
+                "screen-keyboard-enabled",
+                "true",
+            ],
+        )
+    }
+
+    fn hide(&self) -> Result<(), String> {
+        run_command(
+            "gsettings",
+            &[
+                "set",
+                "org.gnome.desktop.a11y.applications",
+                "screen-keyboard-enabled",
+                "false",
+            ],
+        )
+    }
+
+    fn is_enabled(&self) -> Result<bool, String> {
+        let output = Command::new("gsettings")
+            .args([
+                "get",
+                "org.gnome.desktop.a11y.applications",
+                "screen-keyboard-enabled",
+            ])
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !output.status.success() {
+            return Err("gsettings failed".to_string());
+        }
+
+        let value = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .to_lowercase();
+        match value.as_str() {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => Err(format!("Unknown value: {}", value)),
+        }
+    }
+}
+
+fn is_gnome_session() -> bool {
+    env::var("XDG_CURRENT_DESKTOP")
+        .map(|d| d.to_uppercase().contains("GNOME"))
+        .unwrap_or(false)
+}
+
+// =============================================================================
+// Squeekboard Backend
+// =============================================================================
+
+struct SqueekboardBackend;
+
+impl SqueekboardBackend {
+    fn is_available() -> bool {
+        check_dbus_service("sm.puri.OSK0", "/sm/puri/OSK0")
+    }
+}
+
+impl OskBackend for SqueekboardBackend {
+    fn name(&self) -> &'static str {
+        "squeekboard"
+    }
+
+    fn show(&self) -> Result<(), String> {
+        run_dbus_call(
+            "sm.puri.OSK0",
+            "/sm/puri/OSK0",
+            "sm.puri.OSK0",
+            "SetVisible",
+            "b",
+            "true",
+        )
+    }
+
+    fn hide(&self) -> Result<(), String> {
+        run_dbus_call(
+            "sm.puri.OSK0",
+            "/sm/puri/OSK0",
+            "sm.puri.OSK0",
+            "SetVisible",
+            "b",
+            "false",
+        )
+    }
+
+    fn is_enabled(&self) -> Result<bool, String> {
+        // Squeekboard DBus property could be checked, but omitting for now
+        Err("Not supported".to_string())
+    }
+}
+
+// =============================================================================
+// KDE Plasma Backend
+// =============================================================================
+
+struct KdeBackend;
+
+impl KdeBackend {
+    fn is_available() -> bool {
+        is_kde_session() && check_dbus_service("org.kde.KWin", "/VirtualKeyboard")
+    }
+}
+
+impl OskBackend for KdeBackend {
+    fn name(&self) -> &'static str {
+        "KDE Virtual Keyboard"
+    }
+
+    fn show(&self) -> Result<(), String> {
+        run_dbus_call(
+            "org.kde.KWin",
+            "/VirtualKeyboard",
+            "org.kde.kwin.VirtualKeyboard",
+            "setEnabled",
+            "b",
+            "true",
+        )
+    }
+
+    fn hide(&self) -> Result<(), String> {
+        run_dbus_call(
+            "org.kde.KWin",
+            "/VirtualKeyboard",
+            "org.kde.kwin.VirtualKeyboard",
+            "setEnabled",
+            "b",
+            "false",
+        )
+    }
+
+    fn is_enabled(&self) -> Result<bool, String> {
+        Err("Not supported".to_string())
+    }
+}
+
+fn is_kde_session() -> bool {
+    env::var("XDG_CURRENT_DESKTOP")
+        .map(|d| d.to_uppercase().contains("KDE"))
+        .unwrap_or(false)
+}
+
+// =============================================================================
+// Helpers
+// =============================================================================
+
+fn command_exists(command: &str) -> bool {
+    if let Some(path_var) = env::var_os("PATH") {
+        for path in env::split_paths(&path_var) {
+            if path.join(command).is_file() {
+                return true;
             }
         }
     }
     false
 }
 
-// =============================================================================
-// GNOME Shell backend (gsettings: org.gnome.desktop.a11y.applications)
-// =============================================================================
-
-/// Check if GNOME Shell is available.
-fn is_gnome_shell_available() -> bool {
-    // Check if running under GNOME
-    let is_gnome = env::var("XDG_CURRENT_DESKTOP")
-        .map(|d| d.to_uppercase().contains("GNOME"))
-        .unwrap_or(false);
-
-    if !is_gnome {
-        return false;
-    }
-
-    // Check if gsettings and the schema are available
-    Command::new("gsettings")
-        .args([
-            "get",
-            "org.gnome.desktop.a11y.applications",
-            "screen-keyboard-enabled",
-        ])
+fn check_pgrep(name: &str) -> bool {
+    Command::new("pgrep")
+        .args(["-x", name])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
-/// Show GNOME Shell OSK via gsettings.
-fn show_gnome_shell() -> bool {
-    Command::new("gsettings")
-        .args([
-            "set",
-            "org.gnome.desktop.a11y.applications",
-            "screen-keyboard-enabled",
-            "true",
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// Hide GNOME Shell OSK via gsettings.
-fn hide_gnome_shell() -> bool {
-    Command::new("gsettings")
-        .args([
-            "set",
-            "org.gnome.desktop.a11y.applications",
-            "screen-keyboard-enabled",
-            "false",
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-// =============================================================================
-// Squeekboard/Phosh backend (DBus: sm.puri.OSK0)
-// =============================================================================
-
-/// Check if squeekboard is available via DBus.
-fn is_squeekboard_available() -> bool {
-    // Check if the DBus service exists
-    Command::new("busctl")
-        .args(["--user", "introspect", "sm.puri.OSK0", "/sm/puri/OSK0"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Show squeekboard via DBus.
-fn show_squeekboard() -> bool {
-    Command::new("busctl")
-        .args([
-            "call",
-            "--user",
-            "sm.puri.OSK0",
-            "/sm/puri/OSK0",
-            "sm.puri.OSK0",
-            "SetVisible",
-            "b",
-            "true",
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// Hide squeekboard via DBus.
-fn hide_squeekboard() -> bool {
-    Command::new("busctl")
-        .args([
-            "call",
-            "--user",
-            "sm.puri.OSK0",
-            "/sm/puri/OSK0",
-            "sm.puri.OSK0",
-            "SetVisible",
-            "b",
-            "false",
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-// =============================================================================
-// KDE Plasma backend (DBus: org.kde.KWin)
-// =============================================================================
-
-/// Check if KDE Plasma Virtual Keyboard is available.
-fn is_kde_plasma_available() -> bool {
-    // Check if running under KDE
-    let is_kde = env::var("XDG_CURRENT_DESKTOP")
-        .map(|d| d.to_uppercase().contains("KDE"))
-        .unwrap_or(false);
-
-    if !is_kde {
-        return false;
-    }
-
-    // Check if the DBus interface exists
-    Command::new("busctl")
-        .args(["--user", "introspect", "org.kde.KWin", "/VirtualKeyboard"])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
-/// Show KDE Plasma Virtual Keyboard via DBus.
-fn show_kde_plasma() -> bool {
-    Command::new("busctl")
-        .args([
-            "call",
-            "--user",
-            "org.kde.KWin",
-            "/VirtualKeyboard",
-            "org.kde.kwin.VirtualKeyboard",
-            "setEnabled",
-            "b",
-            "true",
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// Hide KDE Plasma Virtual Keyboard via DBus.
-fn hide_kde_plasma() -> bool {
-    Command::new("busctl")
-        .args([
-            "call",
-            "--user",
-            "org.kde.KWin",
-            "/VirtualKeyboard",
-            "org.kde.kwin.VirtualKeyboard",
-            "setEnabled",
-            "b",
-            "false",
-        ])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-// =============================================================================
-// Utility functions
-// =============================================================================
-
-/// Check if a command exists in PATH.
-fn command_exists(command: &str) -> bool {
-    find_in_path(command).is_some()
-}
-
-/// Find a command in PATH.
-fn find_in_path(command: &str) -> Option<PathBuf> {
-    let path_var = env::var_os("PATH")?;
-    for path in env::split_paths(&path_var) {
-        let candidate = path.join(command);
-        if candidate.is_file() {
-            return Some(candidate);
+fn get_pid_by_name(name: &str) -> Option<i32> {
+    if let Ok(output) = Command::new("pgrep").args(["-x", name]).output() {
+        if output.status.success() {
+            let pid_str = String::from_utf8_lossy(&output.stdout);
+            return pid_str.trim().parse::<i32>().ok();
         }
     }
     None
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn run_command(cmd: &str, args: &[&str]) -> Result<(), String> {
+    let status = Command::new(cmd)
+        .args(args)
+        .status()
+        .map_err(|e| e.to_string())?;
 
-    #[test]
-    fn test_backend_names() {
-        assert_eq!(OskBackend::Wvkbd.name(), "wvkbd");
-        assert_eq!(OskBackend::GnomeShell.name(), "GNOME Shell OSK");
-        assert_eq!(OskBackend::Squeekboard.name(), "squeekboard");
-        assert_eq!(OskBackend::KdePlasma.name(), "KDE Virtual Keyboard");
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Command {} failed", cmd))
     }
+}
 
-    #[test]
-    fn test_detect_backend_does_not_panic() {
-        // Just ensure detection doesn't panic
-        let _ = detect_backend();
-    }
+fn check_dbus_service(dest: &str, path: &str) -> bool {
+    Command::new("busctl")
+        .args(["--user", "introspect", dest, path])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
 
-    #[test]
-    fn test_is_available_does_not_panic() {
-        let _ = is_available();
-    }
+fn run_dbus_call(
+    dest: &str,
+    path: &str,
+    interface: &str,
+    method: &str,
+    type_sig: &str,
+    value: &str,
+) -> Result<(), String> {
+    run_command(
+        "busctl",
+        &[
+            "call", "--user", dest, path, interface, method, type_sig, value,
+        ],
+    )
 }

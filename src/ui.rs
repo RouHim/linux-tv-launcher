@@ -22,6 +22,7 @@ use crate::image_cache::ImageCache;
 use crate::input::Action;
 use crate::launcher::{launch_app, resolve_monitor_target};
 use crate::model::{AppEntry, Category, LauncherAction, LauncherItem, SystemIcon};
+use crate::osk::OskManager;
 use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config};
@@ -66,6 +67,7 @@ pub struct Launcher {
     window_id: Option<window::Id>,
     // Game running state - disables input subscriptions
     game_running: bool,
+    osk_manager: OskManager,
 }
 
 #[derive(Debug, Clone)]
@@ -129,6 +131,7 @@ impl Launcher {
             modal: ModalState::None,
             window_id: None,
             game_running: false,
+            osk_manager: OskManager::new(),
         };
         launcher.update_columns();
 
@@ -307,6 +310,7 @@ impl Launcher {
                 Task::none()
             }
             Message::StartSystemUpdate => {
+                self.osk_manager.show();
                 self.modal = ModalState::SystemUpdate(SystemUpdateState::new());
                 Task::none()
             }
@@ -535,9 +539,14 @@ impl Launcher {
         }
     }
 
+    fn exit_app(&mut self) -> ! {
+        self.osk_manager.restore();
+        std::process::exit(0);
+    }
+
     fn handle_navigation(&mut self, action: Action) -> Task<Message> {
         if action == Action::Quit {
-            std::process::exit(0);
+            self.exit_app();
         }
 
         if let Some(task) = self.handle_modal_navigation(action) {
@@ -649,7 +658,7 @@ impl Launcher {
                         };
                         if index == quit_index {
                             // Quit Launcher
-                            std::process::exit(0);
+                            self.exit_app();
                         } else {
                             // Close
                             self.modal = ModalState::None;
@@ -852,7 +861,7 @@ impl Launcher {
                 Task::none()
             }
             LauncherAction::Exit => {
-                std::process::exit(0);
+                self.exit_app();
             }
         }
     }
