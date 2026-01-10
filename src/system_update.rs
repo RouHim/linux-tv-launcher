@@ -6,6 +6,8 @@ use std::process::{Command, Stdio};
 use thiserror::Error;
 use tracing::info;
 
+use crate::osk;
+
 #[derive(Debug)]
 struct UpdateCommand {
     program: String,
@@ -25,7 +27,7 @@ impl UpdateCommand {
 
 #[derive(Debug, Error)]
 pub enum UpdateError {
-    #[error("No supported system updater found. Install pkexec or sudo and a supported package manager.")]
+    #[error("System updates require polkit (pkexec) and a supported package manager (apt-get, dnf, pacman, or zypper).")]
     NoSupportedUpdater,
     #[error("Failed to launch system update command `{command}`: {source}")]
     LaunchFailed {
@@ -39,7 +41,15 @@ pub fn run_update() -> Result<String, UpdateError> {
 
     info!("Starting system update: {}", command.display());
 
-    Command::new(&command.program)
+    // Show on-screen keyboard before pkexec prompts for password
+    // This helps users without a physical keyboard (e.g., TV/living room setups)
+    let osk_shown = if matches!(privilege_mode(), PrivilegeMode::Pkexec) {
+        osk::show()
+    } else {
+        false
+    };
+
+    let result = Command::new(&command.program)
         .args(&command.args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -48,7 +58,16 @@ pub fn run_update() -> Result<String, UpdateError> {
         .map_err(|err| UpdateError::LaunchFailed {
             command: command.display(),
             source: err,
-        })?;
+        });
+
+    // Note: We don't hide the OSK here because the pkexec dialog runs async.
+    // The user will dismiss or use the OSK as needed. On most systems, the OSK
+    // auto-hides when no text field is focused, or the user can dismiss it.
+    if osk_shown {
+        info!("On-screen keyboard shown for password entry");
+    }
+
+    result?;
 
     Ok(format!("System update started ({})", command.label))
 }
@@ -90,15 +109,12 @@ fn detect_update_command() -> Option<UpdateCommand> {
 #[derive(Clone, Copy)]
 enum PrivilegeMode {
     Pkexec,
-    Sudo,
     None,
 }
 
 fn privilege_mode() -> PrivilegeMode {
     if command_exists("pkexec") {
         PrivilegeMode::Pkexec
-    } else if command_exists("sudo") {
-        PrivilegeMode::Sudo
     } else {
         PrivilegeMode::None
     }
@@ -115,15 +131,6 @@ fn build_command_with_privilege(
             args.insert(0, program.to_string());
             UpdateCommand {
                 program: "pkexec".to_string(),
-                args,
-                label,
-            }
-        }
-        PrivilegeMode::Sudo => {
-            args.insert(0, program.to_string());
-            args.insert(0, "-n".to_string());
-            UpdateCommand {
-                program: "sudo".to_string(),
                 args,
                 label,
             }

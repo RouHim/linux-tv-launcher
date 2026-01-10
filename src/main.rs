@@ -11,6 +11,7 @@ mod image_cache;
 mod input;
 mod launcher;
 mod model;
+mod osk;
 mod searxng;
 mod steamgriddb;
 mod storage;
