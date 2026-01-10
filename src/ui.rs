@@ -117,7 +117,6 @@ impl Launcher {
                 LauncherItem::shutdown(),
                 LauncherItem::suspend(),
                 LauncherItem::system_update(),
-                LauncherItem::app_update(),
                 LauncherItem::exit(),
             ],
             selected_index: 0,
@@ -150,6 +149,16 @@ impl Launcher {
                     Message::AppsLoaded,
                 ),
                 Task::perform(async { scan_games() }, Message::GamesLoaded),
+                // Run app update check in background on startup
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(crate::updater::check_for_updates)
+                            .await
+                            .map_err(|e| format!("Task join error: {}", e))
+                            .and_then(|r| r)
+                    },
+                    Message::AppUpdateResult,
+                ),
             ]),
         )
     }
@@ -407,12 +416,14 @@ impl Launcher {
                             |_| Message::RestartApp,
                         )
                     } else {
-                        self.status_message = Some("App is up to date".to_string());
+                        // Silent update check when no updates found
+                        info!("App is up to date");
                         Task::none()
                     }
                 }
                 Err(e) => {
-                    self.status_message = Some(format!("Update failed: {}", e));
+                    // Log error but don't show user facing message for background check failure
+                    warn!("Auto-update check failed: {}", e);
                     Task::none()
                 }
             },
@@ -874,18 +885,6 @@ impl Launcher {
             LauncherAction::SystemUpdate => {
                 // Trigger the modal start
                 self.update(Message::StartSystemUpdate)
-            }
-            LauncherAction::AppUpdate => {
-                // Run app update check in background task
-                Task::perform(
-                    async {
-                        tokio::task::spawn_blocking(crate::updater::check_for_updates)
-                            .await
-                            .map_err(|e| format!("Task join error: {}", e))
-                            .and_then(|r| r)
-                    },
-                    Message::AppUpdateResult,
-                )
             }
             LauncherAction::Shutdown => {
                 if let Err(e) = std::process::Command::new("systemctl")
