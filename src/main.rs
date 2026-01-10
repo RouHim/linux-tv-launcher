@@ -16,10 +16,12 @@ mod searxng;
 mod steamgriddb;
 mod storage;
 mod system_update;
+mod system_update_state;
 mod ui;
 mod ui_app_picker;
 mod ui_components;
 mod ui_modals;
+mod ui_system_update_modal;
 mod ui_theme;
 
 use iced_fonts::FONTAWESOME_FONT_BYTES;

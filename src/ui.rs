@@ -8,6 +8,7 @@ use iced::{
 };
 use rayon::prelude::*;
 use std::path::PathBuf;
+use std::time::Duration;
 use uuid::Uuid;
 
 use crate::assets::get_default_icon;
@@ -24,10 +25,12 @@ use crate::model::{AppEntry, Category, LauncherAction, LauncherItem, SystemIcon}
 use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config};
-use crate::system_update::run_update;
+use crate::system_update::system_update_stream;
+use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
 use crate::ui_components::{render_icon, IconPath};
 use crate::ui_modals::{render_context_menu, render_help_modal};
+use crate::ui_system_update_modal::render_system_update_modal;
 use crate::ui_theme::*;
 use tracing::{info, warn};
 
@@ -35,6 +38,7 @@ enum ModalState {
     None,
     ContextMenu { index: usize },
     AppPicker(AppPickerState),
+    SystemUpdate(SystemUpdateState),
     Help,
 }
 
@@ -78,6 +82,12 @@ pub enum Message {
     AddSelectedApp,
     CloseAppPicker,
     AppPickerScrolled(iced::widget::scrollable::Viewport),
+    // System Update messages
+    StartSystemUpdate,
+    SystemUpdateProgress(SystemUpdateProgress),
+    CloseSystemUpdateModal,
+    CancelSystemUpdate,
+    RequestReboot,
     GameExited,
     WindowOpened(window::Id),
     WindowFocused(window::Id),
@@ -296,6 +306,52 @@ impl Launcher {
                 }
                 Task::none()
             }
+            Message::StartSystemUpdate => {
+                self.modal = ModalState::SystemUpdate(SystemUpdateState::new());
+                Task::none()
+            }
+            Message::SystemUpdateProgress(progress) => {
+                if let ModalState::SystemUpdate(state) = &mut self.modal {
+                    // Prevent updates if the process is already finished (e.g. cancelled/failed)
+                    // This avoids race conditions where pending stream messages overwrite the cancellation state
+                    if !state.status.is_finished() {
+                        match progress {
+                            SystemUpdateProgress::StatusChange(new_status) => {
+                                state.status = new_status;
+                            }
+                            SystemUpdateProgress::LogLine(line) => {
+                                state.output_log.push(line);
+                            }
+                            SystemUpdateProgress::SpinnerTick => {
+                                state.spinner_tick = state.spinner_tick.wrapping_add(1);
+                            }
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::CloseSystemUpdateModal => {
+                self.modal = ModalState::None;
+                Task::none()
+            }
+            Message::CancelSystemUpdate => {
+                if let ModalState::SystemUpdate(state) = &mut self.modal {
+                    // Only allow cancelling if not installing
+                    if !matches!(state.status, UpdateStatus::Installing { .. }) {
+                        state.status = UpdateStatus::Failed("Update cancelled by user".to_string());
+                    }
+                }
+                Task::none()
+            }
+            Message::RequestReboot => {
+                if let Err(e) = std::process::Command::new("systemctl")
+                    .arg("reboot")
+                    .spawn()
+                {
+                    self.status_message = Some(format!("Failed to reboot: {}", e));
+                }
+                Task::none()
+            }
             Message::GameExited => {
                 self.game_running = false;
                 info!("Game/App process exited. Recreating window to regain focus.");
@@ -397,6 +453,7 @@ impl Launcher {
         match &self.modal {
             ModalState::ContextMenu { index } => Some(render_context_menu(*index, self.category)),
             ModalState::AppPicker(state) => Some(render_app_picker(state, &self.available_apps)),
+            ModalState::SystemUpdate(state) => Some(render_system_update_modal(state)),
             ModalState::Help => Some(render_help_modal()),
             ModalState::None => None,
         }
@@ -450,7 +507,22 @@ impl Launcher {
             }
         });
 
-        Subscription::batch(vec![gamepad, keyboard, window_events])
+        let mut subscriptions = vec![gamepad, keyboard, window_events];
+
+        // System update subscriptions (stream + spinner)
+        if let ModalState::SystemUpdate(state) = &self.modal {
+            if state.status.is_running() {
+                subscriptions.push(
+                    Subscription::run(system_update_stream).map(Message::SystemUpdateProgress),
+                );
+                subscriptions.push(
+                    iced::time::every(Duration::from_millis(150))
+                        .map(|_| Message::SystemUpdateProgress(SystemUpdateProgress::SpinnerTick)),
+                );
+            }
+        }
+
+        Subscription::batch(subscriptions)
     }
 
     fn handle_modal_navigation(&mut self, action: Action) -> Option<Task<Message>> {
@@ -458,6 +530,7 @@ impl Launcher {
             ModalState::Help => Some(self.handle_help_modal_navigation(action)),
             ModalState::ContextMenu { .. } => Some(self.handle_context_menu_navigation(action)),
             ModalState::AppPicker(_) => Some(self.handle_app_picker_navigation(action)),
+            ModalState::SystemUpdate(_) => Some(self.handle_system_update_navigation(action)),
             ModalState::None => None,
         }
     }
@@ -605,6 +678,36 @@ impl Launcher {
         Task::none()
     }
 
+    fn handle_system_update_navigation(&mut self, action: Action) -> Task<Message> {
+        if let ModalState::SystemUpdate(state) = &self.modal {
+            match &state.status {
+                UpdateStatus::Completed { restart_required } if *restart_required => match action {
+                    Action::Select => return self.update(Message::RequestReboot),
+                    Action::Back | Action::ShowHelp => {
+                        return self.update(Message::CloseSystemUpdateModal)
+                    }
+                    _ => {}
+                },
+                // Finished states -> Close
+                status if status.is_finished() => match action {
+                    Action::Back | Action::Select | Action::ShowHelp => {
+                        return self.update(Message::CloseSystemUpdateModal);
+                    }
+                    _ => {}
+                },
+                // Running states -> Cancel if allowed
+                status if status.is_running() => {
+                    if !matches!(status, UpdateStatus::Installing { .. }) && action == Action::Back
+                    {
+                        return self.update(Message::CancelSystemUpdate);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Task::none()
+    }
+
     fn snap_to_picker_selection(&self) -> Task<Message> {
         let Some(state) = self.app_picker_state() else {
             return Task::none();
@@ -726,16 +829,10 @@ impl Launcher {
                     }
                 }
             }
-            LauncherAction::SystemUpdate => match run_update() {
-                Ok(message) => {
-                    self.status_message = Some(message);
-                    Task::none()
-                }
-                Err(err) => {
-                    self.status_message = Some(err.to_string());
-                    Task::none()
-                }
-            },
+            LauncherAction::SystemUpdate => {
+                // Trigger the modal start
+                self.update(Message::StartSystemUpdate)
+            }
             LauncherAction::Shutdown => {
                 if let Err(e) = std::process::Command::new("systemctl")
                     .arg("poweroff")
