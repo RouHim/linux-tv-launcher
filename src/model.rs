@@ -48,6 +48,7 @@ impl Category {
 pub enum LauncherAction {
     Launch { exec: String },
     SystemUpdate,
+    AppUpdate,
     Shutdown,
     Suspend,
     Exit,
@@ -118,6 +119,18 @@ impl LauncherItem {
             icon: None,
             system_icon: Some(SystemIcon::Pause),
             action: LauncherAction::Suspend,
+            source_image_url: None,
+            game_executable: None,
+        }
+    }
+
+    pub fn app_update() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: "Update App".to_string(),
+            icon: None,
+            system_icon: Some(SystemIcon::ArrowsRotate),
+            action: LauncherAction::AppUpdate,
             source_image_url: None,
             game_executable: None,
         }

@@ -34,3 +34,24 @@ jobs:
 
       - name: Build release
         run: cargo build --release
+
+  arm-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cross
+        run: cargo install cross
+
+      - name: Build ARM64 release
+        run: cross build --target aarch64-unknown-linux-gnu --release

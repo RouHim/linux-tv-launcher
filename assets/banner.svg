@@ -1,0 +1,23 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg">
+  <!-- Gradient background -->
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#333333;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#grad)"/>
+  <!-- Logo -->
+  <g transform="translate(100, 200)">
+    <rect width="128" height="80" rx="16" fill="#333"/>
+    <circle cx="32" cy="40" r="12" fill="#666"/>
+    <circle cx="96" cy="40" r="8" fill="#999"/>
+    <rect x="16" y="52" width="8" height="20" fill="#fff"/>
+    <rect x="8" y="60" width="20" height="8" fill="#fff"/>
+    <circle cx="112" cy="32" r="8" fill="#ff4444"/>
+    <circle cx="120" cy="48" r="8" fill="#44ff44"/>
+  </g>
+  <!-- Title -->
+  <text x="350" y="320" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="#fff">Linux TV Launcher</text>
+  <text x="350" y="380" font-family="Arial, sans-serif" font-size="36" fill="#ccc">Modern Game Launcher for Linux TVs</text>
+</svg>

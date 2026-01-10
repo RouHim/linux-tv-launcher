@@ -1,4 +1,23 @@
-<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-  <rect width="64" height="64" rx="10" fill="#555" />
-  <circle cx="32" cy="32" r="20" fill="#fff" />
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="256" height="256" rx="32" fill="#1a1a1a"/>
+  <!-- Gamepad body -->
+  <rect x="64" y="96" width="128" height="80" rx="16" fill="#333"/>
+  <!-- Left analog stick -->
+  <circle cx="96" cy="120" r="12" fill="#666"/>
+  <circle cx="96" cy="120" r="8" fill="#999"/>
+  <!-- Right analog stick -->
+  <circle cx="160" cy="144" r="12" fill="#666"/>
+  <circle cx="160" cy="144" r="8" fill="#999"/>
+  <!-- D-pad -->
+  <rect x="80" y="152" width="8" height="20" fill="#fff"/>
+  <rect x="72" y="160" width="20" height="8" fill="#fff"/>
+  <!-- Buttons -->
+  <circle cx="192" cy="112" r="8" fill="#ff4444"/>
+  <circle cx="208" cy="128" r="8" fill="#44ff44"/>
+  <circle cx="192" cy="144" r="8" fill="#4444ff"/>
+  <circle cx="176" cy="128" r="8" fill="#ffff44"/>
+  <!-- TV screen outline -->
+  <rect x="40" y="40" width="176" height="16" rx="8" fill="#555"/>
+  <text x="128" y="52" text-anchor="middle" font-family="Arial" font-size="10" fill="#fff">TV LAUNCHER</text>
 </svg>

@@ -9,6 +9,7 @@ use iced::{
 use rayon::prelude::*;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::{env, io, process, thread};
 use uuid::Uuid;
 
 use crate::assets::get_default_icon;
@@ -68,6 +69,7 @@ pub struct Launcher {
     // Game running state - disables input subscriptions
     game_running: bool,
     osk_manager: OskManager,
+    current_exe: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +95,8 @@ pub enum Message {
     GameExited,
     WindowOpened(window::Id),
     WindowFocused(window::Id),
+    AppUpdateResult(Result<bool, String>),
+    RestartApp,
     None,
 }
 
@@ -104,6 +108,7 @@ impl Launcher {
         let sgdb_client = SteamGridDbClient::new("276bca336e815a4e2dd2250ea674eb31".to_string());
         let searxng_client = SearxngClient::new();
         let image_cache = ImageCache::new().ok();
+        let current_exe = env::current_exe().ok();
 
         let mut launcher = Self {
             apps: Vec::new(),
@@ -112,6 +117,7 @@ impl Launcher {
                 LauncherItem::shutdown(),
                 LauncherItem::suspend(),
                 LauncherItem::system_update(),
+                LauncherItem::app_update(),
                 LauncherItem::exit(),
             ],
             selected_index: 0,
@@ -132,6 +138,7 @@ impl Launcher {
             window_id: None,
             game_running: false,
             osk_manager: OskManager::new(),
+            current_exe,
         };
         launcher.update_columns();
 
@@ -386,6 +393,32 @@ impl Launcher {
                 if self.window_id.is_none() {
                     info!("Captured window ID from Focus event: {:?}", id);
                     self.window_id = Some(id);
+                }
+                Task::none()
+            }
+            Message::AppUpdateResult(result) => match result {
+                Ok(updated) => {
+                    if updated {
+                        self.status_message = Some("App updated, restarting...".to_string());
+                        Task::perform(
+                            async {
+                                tokio::time::sleep(Duration::from_secs(2)).await;
+                            },
+                            |_| Message::RestartApp,
+                        )
+                    } else {
+                        self.status_message = Some("App is up to date".to_string());
+                        Task::none()
+                    }
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Update failed: {}", e));
+                    Task::none()
+                }
+            },
+            Message::RestartApp => {
+                if let Some(exe) = &self.current_exe {
+                    restart_process(exe.clone());
                 }
                 Task::none()
             }
@@ -842,6 +875,18 @@ impl Launcher {
                 // Trigger the modal start
                 self.update(Message::StartSystemUpdate)
             }
+            LauncherAction::AppUpdate => {
+                // Run app update check in background task
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(crate::updater::check_for_updates)
+                            .await
+                            .map_err(|e| format!("Task join error: {}", e))
+                            .and_then(|r| r)
+                    },
+                    Message::AppUpdateResult,
+                )
+            }
             LauncherAction::Shutdown => {
                 if let Err(e) = std::process::Command::new("systemctl")
                     .arg("poweroff")
@@ -1178,6 +1223,42 @@ impl Launcher {
         } else {
             "No apps configured.".to_string()
         }
+    }
+}
+
+/// Restarts the current process
+fn restart_process(current_executable: PathBuf) {
+    println!(
+        "Restarting {} in 3 seconds...",
+        current_executable.display()
+    );
+    thread::sleep(Duration::from_secs(3));
+    let err = exec(process::Command::new(current_executable.clone()).args(env::args().skip(1)));
+    eprintln!(
+        "Error: Failed to restart process {}: {}",
+        current_executable.display(),
+        err
+    );
+    std::process::exit(1);
+}
+
+/// Replaces the current process with a new one
+/// This function is only available on Unix platforms
+#[cfg(unix)]
+fn exec(command: &mut process::Command) -> io::Error {
+    use std::os::unix::process::CommandExt as _;
+    // Completely replace the current process image. If successful, execution
+    // of the current process stops here.
+    command.exec()
+}
+
+#[cfg(windows)]
+fn exec(command: &mut process::Command) -> io::Error {
+    // On Windows, we cannot replace the current process, so we just spawn a new one
+    // and exit the current one.
+    match command.spawn() {
+        Ok(_) => std::process::exit(0),
+        Err(err) => err,
     }
 }
 

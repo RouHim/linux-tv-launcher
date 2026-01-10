@@ -23,6 +23,7 @@ mod ui_components;
 mod ui_modals;
 mod ui_system_update_modal;
 mod ui_theme;
+mod updater;
 
 use iced_fonts::FONTAWESOME_FONT_BYTES;
 use ui::Launcher;
