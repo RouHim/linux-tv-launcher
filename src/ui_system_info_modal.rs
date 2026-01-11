@@ -1,4 +1,4 @@
-use iced::widget::{Column, Container, Row, Scrollable, Text};
+use iced::widget::{Column, Container, Row, Scrollable, Space, Text};
 use iced::{Color, Element, Length};
 
 use crate::messages::Message;
@@ -88,7 +88,7 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
 
     // Modal box
     let modal_box = Container::new(modal_column)
-        .width(Length::Fixed(800.0))
+        .width(Length::FillPortion(2))
         .height(Length::FillPortion(80))
         .padding(20)
         .style(|_| iced::widget::container::Style {
@@ -101,8 +101,14 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
             ..Default::default()
         });
 
+    let layout = Row::new()
+        .push(Space::new().width(Length::FillPortion(1)))
+        .push(modal_box)
+        .push(Space::new().width(Length::FillPortion(1)))
+        .width(Length::Fill);
+
     // Overlay container
-    Container::new(modal_box)
+    Container::new(layout)
         .width(Length::Fill)
         .height(Length::Fill)
         .center_x(Length::Fill)
