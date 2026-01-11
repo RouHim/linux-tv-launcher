@@ -402,16 +402,16 @@ impl Launcher {
                     async { tokio::task::spawn_blocking(fetch_system_info).await.ok() },
                     |info| {
                         if let Some(info) = info {
-                            Message::SystemInfoLoaded(info)
+                            Message::SystemInfoLoaded(Box::new(info))
                         } else {
                             Message::None
                         }
                     },
                 )
             }
-            Message::SystemInfoLoaded(info) => {
+            Message::SystemInfoLoaded(info_box) => {
                 if let ModalState::SystemInfo(state) = &mut self.modal {
-                    *state = Some(info);
+                    *state = Some(*info_box);
                 }
                 Task::none()
             }

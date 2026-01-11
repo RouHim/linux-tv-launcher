@@ -30,7 +30,33 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
         column = column.push(info_row("Driver", info.gpu_driver.clone()));
         column = column.push(info_row("Vulkan", info.vulkan_info.clone()));
         column = column.push(info_row("Session", info.xdg_session_type.clone()));
-        column = column.push(info_row("Wine", info.wine_version.clone()));
+        // Wine versions list
+        column = column.push(
+            Text::new("Wine Versions")
+                .font(SANSATION)
+                .size(18)
+                .color(COLOR_TEXT_SOFT),
+        );
+
+        let mut wine_col = Column::new().spacing(5).padding(10);
+        if info.wine_versions.is_empty() {
+            wine_col = wine_col.push(
+                Text::new("Not Installed")
+                    .font(SANSATION)
+                    .size(16)
+                    .color(COLOR_TEXT_DIM),
+            );
+        } else {
+            for (name, version) in &info.wine_versions {
+                wine_col = wine_col.push(
+                    Text::new(format!("{}: {}", name, version))
+                        .font(SANSATION)
+                        .size(16)
+                        .color(COLOR_TEXT_BRIGHT),
+                );
+            }
+        }
+        column = column.push(Container::new(wine_col).padding(20)); // Indent
 
         // Proton versions list
         column = column.push(
@@ -41,13 +67,22 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
         );
 
         let mut proton_col = Column::new().spacing(5).padding(10);
-        for proton in &info.proton_versions {
+        if info.proton_versions.is_empty() {
             proton_col = proton_col.push(
-                Text::new(proton)
+                Text::new("None Found")
                     .font(SANSATION)
                     .size(16)
-                    .color(COLOR_TEXT_BRIGHT),
+                    .color(COLOR_TEXT_DIM),
             );
+        } else {
+            for (name, version) in &info.proton_versions {
+                proton_col = proton_col.push(
+                    Text::new(format!("{}: {}", name, version))
+                        .font(SANSATION)
+                        .size(16)
+                        .color(COLOR_TEXT_BRIGHT),
+                );
+            }
         }
         column = column.push(Container::new(proton_col).padding(20)); // Indent
 

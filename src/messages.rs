@@ -32,7 +32,7 @@ pub enum Message {
     RequestReboot,
     // System Info messages
     OpenSystemInfo,
-    SystemInfoLoaded(GamingSystemInfo),
+    SystemInfoLoaded(Box<GamingSystemInfo>),
     CloseSystemInfoModal,
     // Game/App lifecycle
     GameExited,

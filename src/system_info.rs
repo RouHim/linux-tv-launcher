@@ -14,8 +14,8 @@ pub struct GamingSystemInfo {
     pub gpu_driver: String,
     pub vulkan_info: String,
     pub xdg_session_type: String,
-    pub wine_version: String,
-    pub proton_versions: Vec<String>,
+    pub wine_versions: Vec<(String, String)>,
+    pub proton_versions: Vec<(String, String)>,
 }
 
 pub fn fetch_system_info() -> GamingSystemInfo {
@@ -26,7 +26,7 @@ pub fn fetch_system_info() -> GamingSystemInfo {
     let (gpu_info, gpu_driver) = get_gpu_info();
     let vulkan_info = get_vulkan_info();
     let xdg_session_type = env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "Unknown".to_string());
-    let wine_version = get_wine_version();
+    let wine_versions = get_wine_versions();
     let proton_versions = get_proton_versions();
 
     GamingSystemInfo {
@@ -39,7 +39,7 @@ pub fn fetch_system_info() -> GamingSystemInfo {
         gpu_driver,
         vulkan_info,
         xdg_session_type,
-        wine_version,
+        wine_versions,
         proton_versions,
     }
 }
@@ -186,15 +186,26 @@ fn get_vulkan_info() -> String {
     "Not Available".to_string()
 }
 
-fn get_wine_version() -> String {
-    Command::new("wine")
-        .arg("--version")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "Not Installed".to_string())
+fn get_wine_versions() -> Vec<(String, String)> {
+    if let Ok(output) = Command::new("wine").arg("--version").output() {
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        vec![("Wine".to_string(), version)]
+    } else {
+        vec![]
+    }
 }
 
-fn get_proton_versions() -> Vec<String> {
+fn extract_version(name: &str) -> String {
+    if let Some(space_pos) = name.find(' ') {
+        name[space_pos..].trim().to_string()
+    } else if let Some(dash_pos) = name.find('-') {
+        name[dash_pos + 1..].to_string()
+    } else {
+        "Unknown".to_string()
+    }
+}
+
+fn get_proton_versions() -> Vec<(String, String)> {
     let mut versions = Vec::new();
     let home = env::var("HOME").unwrap_or_else(|_| "/".to_string());
 
@@ -202,27 +213,24 @@ fn get_proton_versions() -> Vec<String> {
         PathBuf::from(&home).join(".steam/steam/steamapps/common"),
         PathBuf::from(&home).join(".local/share/Steam/steamapps/common"),
         PathBuf::from(&home).join(".steam/root/compatibilitytools.d"),
+        PathBuf::from(&home).join(".steam/steam/compatibilitytools.d"),
+        PathBuf::from(&home).join(".local/share/Steam/compatibilitytools.d"),
     ];
 
     for path in search_paths {
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 if let Ok(file_name) = entry.file_name().into_string() {
-                    if file_name.to_lowercase().contains("proton")
-                        || file_name.contains("GE-Proton")
-                    {
-                        if !versions.contains(&file_name) {
-                            versions.push(file_name);
-                        }
+                    if file_name.to_lowercase().contains("proton") {
+                        let version = extract_version(&file_name);
+                        versions.push((file_name, version));
                     }
                 }
             }
         }
     }
 
-    versions.sort();
-    if versions.is_empty() {
-        versions.push("None Found".to_string());
-    }
+    versions.sort_by(|a, b| a.0.cmp(&b.0));
+    versions.dedup_by(|a, b| a.0 == b.0);
     versions
 }
