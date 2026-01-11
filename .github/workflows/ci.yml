@@ -33,6 +33,8 @@ jobs:
         run: cargo test
 
       - name: Build release
+        env:
+          STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
         run: cargo build --release
 
   arm-check:
@@ -54,4 +56,6 @@ jobs:
         run: cargo install cross
 
       - name: Build ARM64 release
+        env:
+          STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
         run: cross build --target aarch64-unknown-linux-gnu --release

@@ -5,11 +5,12 @@ use uuid::Uuid;
 use crate::desktop_apps::DesktopApp;
 use crate::input::Action;
 use crate::model::AppEntry;
+use crate::storage::AppConfig;
 use crate::system_update_state::SystemUpdateProgress;
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    AppsLoaded(Result<Vec<AppEntry>, String>),
+    AppsLoaded(Result<AppConfig, String>),
     GamesLoaded(Vec<AppEntry>),
     ImageFetched(Uuid, PathBuf),
     Input(Action),

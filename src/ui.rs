@@ -31,7 +31,7 @@ use crate::model::{AppEntry, Category, LauncherAction, LauncherItem};
 use crate::osk::OskManager;
 use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
-use crate::storage::{config_path, load_config, save_config};
+use crate::storage::{config_path, load_config, save_config, AppConfig};
 use crate::sys_utils::restart_process;
 use crate::system_update::system_update_stream;
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
@@ -74,6 +74,7 @@ pub struct Launcher {
     game_running: bool,
     osk_manager: OskManager,
     current_exe: Option<PathBuf>,
+    api_key: Option<String>,
 }
 
 impl Launcher {
@@ -83,7 +84,14 @@ impl Launcher {
         let default_icon = get_default_icon().map(iced::widget::svg::Handle::from_memory);
         let config_path = config_path().ok().map(|path| path.display().to_string());
 
-        let sgdb_client = SteamGridDbClient::new("276bca336e815a4e2dd2250ea674eb31".to_string());
+        // Resolve API Key:
+        // 1. Compile-time env (CI/Production)
+        // 2. Runtime env (Local Dev)
+        let env_key = option_env!("STEAMGRIDDB_API_KEY")
+            .map(|s| s.to_string())
+            .or_else(|| std::env::var("STEAMGRIDDB_API_KEY").ok());
+
+        let sgdb_client = SteamGridDbClient::new(env_key.clone().unwrap_or_default());
         let searxng_client = SearxngClient::new();
         let image_cache = ImageCache::new().ok();
         let current_exe = env::current_exe().ok();
@@ -115,22 +123,14 @@ impl Launcher {
             game_running: false,
             osk_manager: OskManager::new(),
             current_exe,
+            api_key: env_key,
         };
 
-        let tasks = Task::batch(vec![
-            Task::perform(
-                async { load_config().map_err(|err| err.to_string()) },
-                Message::AppsLoaded,
-            ),
-            Task::perform(
-                async {
-                    tokio::task::spawn_blocking(scan_games)
-                        .await
-                        .unwrap_or_else(|_| Vec::new())
-                },
-                Message::GamesLoaded,
-            ),
-        ]);
+        // Chain startup: Load config first to potentially get API key, then scan games
+        let tasks = Task::perform(
+            async { load_config().map_err(|err| err.to_string()) },
+            Message::AppsLoaded,
+        );
 
         drop(_init_span);
 
@@ -162,12 +162,24 @@ impl Launcher {
             Message::AppsLoaded(result) => {
                 self.apps_loaded = true;
                 match result {
-                    Ok(apps) => {
-                        let items: Vec<LauncherItem> =
-                            apps.into_iter().map(LauncherItem::from_app_entry).collect();
+                    Ok(config) => {
+                        let items: Vec<LauncherItem> = config
+                            .apps
+                            .into_iter()
+                            .map(LauncherItem::from_app_entry)
+                            .collect();
                         self.apps.set_items(items);
                         self.apps.sort_inplace();
                         self.status_message = None;
+
+                        // If no env key was found, try using the one from config
+                        if self.api_key.is_none() {
+                            if let Some(key) = config.steamgriddb_api_key {
+                                info!("Using SteamGridDB API key from config");
+                                self.api_key = Some(key.clone());
+                                self.sgdb_client = SteamGridDbClient::new(key);
+                            }
+                        }
                     }
                     Err(err) => {
                         warn!("Failed to load app config: {}", err);
@@ -175,7 +187,16 @@ impl Launcher {
                         self.status_message = Some(err);
                     }
                 }
-                Task::none()
+
+                // Continue startup chain: Scan games now that we have config (and potential API key)
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(scan_games)
+                            .await
+                            .unwrap_or_else(|_| Vec::new())
+                    },
+                    Message::GamesLoaded,
+                )
             }
             Message::GamesLoaded(games) => {
                 let items: Vec<LauncherItem> = games
@@ -1025,7 +1046,13 @@ impl Launcher {
                 _ => None,
             })
             .collect();
-        match save_config(&apps_to_save) {
+
+        let config = AppConfig {
+            apps: apps_to_save,
+            steamgriddb_api_key: self.api_key.clone(),
+        };
+
+        match save_config(&config) {
             Ok(_) => info!("{} app: {}", success_action, app_name),
             Err(err) => warn!(
                 "Failed to save config after {} app {}: {}",
