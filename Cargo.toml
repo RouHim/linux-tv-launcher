@@ -23,6 +23,9 @@ iced_fonts = { version = "0.3", features = ["fontawesome"] }
 self_update = { version = "0.42.0", features = ["rustls"], default-features = false }
 chrono = "0.4.42"
 
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1.43"
+
 [profile.release]
 lto = true
 codegen-units = 1
