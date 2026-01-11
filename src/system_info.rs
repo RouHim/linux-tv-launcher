@@ -150,7 +150,16 @@ fn get_gpu_info() -> (String, String) {
     if gpus.is_empty() {
         ("Unknown GPU".to_string(), driver_info)
     } else {
-        (gpus.join("\n"), driver_info)
+        let gpu_list = if gpus.len() == 1 {
+            gpus[0].clone()
+        } else {
+            gpus.into_iter()
+                .enumerate()
+                .map(|(i, gpu)| format!("GPU {}: {}", i + 1, gpu))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        (gpu_list, driver_info)
     }
 }
 
