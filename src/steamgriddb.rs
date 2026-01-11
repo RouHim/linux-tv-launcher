@@ -35,26 +35,30 @@ pub struct GridData {
 
 impl SteamGridDbClient {
     pub fn new(api_key: String) -> Self {
-        let agent = ureq::AgentBuilder::new()
-            .timeout_read(Duration::from_secs(10))
-            .timeout_write(Duration::from_secs(10))
-            .build();
+        let agent = Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(10)))
+            .build()
+            .new_agent();
         Self { agent, api_key }
     }
 
     pub fn search_game(&self, query: &str) -> Result<Option<u64>> {
         let encoded_query = urlencoding::encode(query);
         let url = format!("{}/search/autocomplete/{}", API_BASE_URL, encoded_query);
-        let resp: SearchResponse = self
+        let mut resp = self
             .agent
             .get(&url)
-            .set("Authorization", &format!("Bearer {}", self.api_key))
+            .header("Authorization", &format!("Bearer {}", self.api_key))
             .call()
-            .context("Failed to search game")?
-            .into_json()?;
+            .context("Failed to search game")?;
 
-        if resp.success && !resp.data.is_empty() {
-            Ok(Some(resp.data[0].id))
+        let search_resp: SearchResponse = resp
+            .body_mut()
+            .read_json()
+            .context("Failed to parse search response")?;
+
+        if search_resp.success && !search_resp.data.is_empty() {
+            Ok(Some(search_resp.data[0].id))
         } else {
             Ok(None)
         }
@@ -63,18 +67,22 @@ impl SteamGridDbClient {
     pub fn get_images_for_game(&self, game_id: u64) -> Result<Vec<GridData>> {
         let url = format!("{}/grids/game/{}", API_BASE_URL, game_id);
         // We prefer 600x900 vertical grids
-        let resp: GridResponse = self
+        let mut resp = self
             .agent
             .get(&url)
             .query("dimensions", "600x900")
             // removed styles filter to get more results
-            .set("Authorization", &format!("Bearer {}", self.api_key))
+            .header("Authorization", &format!("Bearer {}", self.api_key))
             .call()
-            .context("Failed to fetch grids")?
-            .into_json()?;
+            .context("Failed to fetch grids")?;
 
-        if resp.success {
-            Ok(resp.data)
+        let grid_resp: GridResponse = resp
+            .body_mut()
+            .read_json()
+            .context("Failed to parse grid response")?;
+
+        if grid_resp.success {
+            Ok(grid_resp.data)
         } else {
             Ok(Vec::new())
         }

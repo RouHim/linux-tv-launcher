@@ -1,7 +1,6 @@
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use std::fs;
-use std::io::Read;
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -61,10 +60,10 @@ impl ImageCache {
             return Ok(path);
         }
 
-        let resp = ureq::get(url).call().context("Failed to download image")?;
-        let mut bytes = Vec::new();
-        resp.into_reader()
-            .read_to_end(&mut bytes)
+        let mut resp = ureq::get(url).call().context("Failed to download image")?;
+        let bytes = resp
+            .body_mut()
+            .read_to_vec()
             .context("Failed to read response body")?;
 
         let img = image::load_from_memory(&bytes).context("Failed to load image from memory")?;
