@@ -20,8 +20,19 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install sccache
+        uses: taiki-e/install-action@sccache
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+
+      - name: Cache sccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache
+          key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            sccache-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -30,16 +41,23 @@ jobs:
 
       - name: Check Rust format
         run: cargo fmt --all -- --check
+        env:
+          RUSTC_WRAPPER: sccache
 
       - name: Run Rust linter
         run: cargo clippy -- -D warnings
+        env:
+          RUSTC_WRAPPER: sccache
 
       - name: Run tests
         run: cargo test
+        env:
+          RUSTC_WRAPPER: sccache
 
       - name: Build release
         env:
           STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
+          RUSTC_WRAPPER: sccache
         run: cargo build --release
 
   build-x64:
