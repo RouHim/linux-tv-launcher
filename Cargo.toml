@@ -28,3 +28,11 @@ self_update = { version = "0.42.0", features = ["rustls"], default-features = fa
 lto = true
 codegen-units = 1
 strip = true
+
+# Profiling profile - optimized with debug symbols (faster build than full release)
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+lto = false
+codegen-units = 16

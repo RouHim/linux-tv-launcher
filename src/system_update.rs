@@ -50,77 +50,8 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
             let mut updated_packages: Vec<String> = Vec::new();
 
             match cmd.spawn() {
-                Ok(mut child) => {
-                    let mut stdout = match child.stdout.take() {
-                        Some(stdout) => stdout,
-                        None => {
-                            send_failed(&mut output, "Failed to capture stdout".to_string()).await;
-                            return;
-                        }
-                    };
-                    let mut stderr = match child.stderr.take() {
-                        Some(stderr) => stderr,
-                        None => {
-                            send_failed(&mut output, "Failed to capture stderr".to_string()).await;
-                            return;
-                        }
-                    };
-
-                    let mut stdout_buf = Vec::new();
-                    let mut stderr_buf = Vec::new();
-                    let mut read_buf_stdout = [0u8; 1024];
-                    let mut read_buf_stderr = [0u8; 1024];
-                    let stdout_done = false;
-                    let stderr_done = false;
-                    let mut child_status: Option<Result<std::process::ExitStatus, std::io::Error>> =
-                        None;
-
-                    loop {
-                        tokio::select! {
-                            res = stdout.read(&mut read_buf_stdout), if !stdout_done => {
-                                match res {
-                                    Ok(0) => {
-                                        flush_output_buffer(&mut stdout_buf, &mut output, &mut updated_packages).await;
-                                    }
-                                    Ok(_n) => {
-                                        process_output_buffer(&mut stdout_buf, &mut output, &mut updated_packages).await;
-                                    }
-                                    Err(e) => {
-                                        error!("Error reading stdout: {}", e);
-                                        send_failed(&mut output, format!("Error reading stdout: {}", e)).await;
-                                        return;
-                                    }
-                                }
-                            }
-                            res = stderr.read(&mut read_buf_stderr), if !stderr_done => {
-                                match res {
-                                    Ok(0) => {
-                                        flush_output_buffer(&mut stderr_buf, &mut output, &mut updated_packages).await;
-                                    }
-                                    Ok(_n) => {
-                                        process_output_buffer(&mut stderr_buf, &mut output, &mut updated_packages).await;
-                                    }
-                                    Err(e) => {
-                                        error!("Error reading stderr: {}", e);
-                                        send_failed(&mut output, format!("Error reading stderr: {}", e)).await;
-                                        return;
-                                    }
-                                }
-                            }
-                            status = child.wait(), if child_status.is_none() => {
-                                child_status = Some(status);
-                            }
-                        }
-
-                        if stdout_done && stderr_done {
-                            let status = match child_status.take() {
-                                Some(status) => status,
-                                None => child.wait().await,
-                            };
-                            handle_child_exit(status, &mut output, &updated_packages).await;
-                            return;
-                        }
-                    }
+                Ok(child) => {
+                    monitor_child(child, &mut output, &mut updated_packages).await;
                 }
                 Err(e) => {
                     let msg = format!("Failed to spawn update process: {}", e);
@@ -130,6 +61,86 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
             }
         },
     )
+}
+
+async fn monitor_child(
+    mut child: tokio::process::Child,
+    output: &mut iced::futures::channel::mpsc::Sender<SystemUpdateProgress>,
+    updated_packages: &mut Vec<String>,
+) {
+    let mut stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            send_failed(output, "Failed to capture stdout".to_string()).await;
+            return;
+        }
+    };
+    let mut stderr = match child.stderr.take() {
+        Some(stderr) => stderr,
+        None => {
+            send_failed(output, "Failed to capture stderr".to_string()).await;
+            return;
+        }
+    };
+
+    let mut stdout_buf = Vec::new();
+    let mut stderr_buf = Vec::new();
+    let mut read_buf_stdout = [0u8; 1024];
+    let mut read_buf_stderr = [0u8; 1024];
+    let mut stdout_done = false;
+    let mut stderr_done = false;
+    let mut child_status: Option<Result<std::process::ExitStatus, std::io::Error>> = None;
+
+    loop {
+        tokio::select! {
+            res = stdout.read(&mut read_buf_stdout), if !stdout_done => {
+                match res {
+                    Ok(0) => {
+                        flush_output_buffer(&mut stdout_buf, output, updated_packages).await;
+                        stdout_done = true;
+                    }
+                    Ok(n) => {
+                        stdout_buf.extend_from_slice(&read_buf_stdout[..n]);
+                        process_output_buffer(&mut stdout_buf, output, updated_packages).await;
+                    }
+                    Err(e) => {
+                        error!("Error reading stdout: {}", e);
+                        send_failed(output, format!("Error reading stdout: {}", e)).await;
+                        return;
+                    }
+                }
+            }
+            res = stderr.read(&mut read_buf_stderr), if !stderr_done => {
+                match res {
+                    Ok(0) => {
+                        flush_output_buffer(&mut stderr_buf, output, updated_packages).await;
+                        stderr_done = true;
+                    }
+                    Ok(n) => {
+                        stderr_buf.extend_from_slice(&read_buf_stderr[..n]);
+                        process_output_buffer(&mut stderr_buf, output, updated_packages).await;
+                    }
+                    Err(e) => {
+                        error!("Error reading stderr: {}", e);
+                        send_failed(output, format!("Error reading stderr: {}", e)).await;
+                        return;
+                    }
+                }
+            }
+            status = child.wait(), if child_status.is_none() => {
+                child_status = Some(status);
+            }
+        }
+
+        if stdout_done && stderr_done {
+            let status = match child_status.take() {
+                Some(status) => status,
+                None => child.wait().await,
+            };
+            handle_child_exit(status, output, updated_packages).await;
+            return;
+        }
+    }
 }
 
 async fn send_status(
@@ -180,14 +191,27 @@ async fn process_output_buffer(
     sender: &mut iced::futures::channel::mpsc::Sender<SystemUpdateProgress>,
     updated_packages: &mut Vec<String>,
 ) {
-    while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
-        let line_bytes: Vec<u8> = buffer.drain(..=pos).collect();
-        let line = String::from_utf8_lossy(&line_bytes);
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
+    loop {
+        let n_pos = buffer.iter().position(|&b| b == b'\n');
+        let r_pos = buffer.iter().position(|&b| b == b'\r');
+
+        let pos = match (n_pos, r_pos) {
+            (Some(n), Some(r)) => Some(std::cmp::min(n, r)),
+            (Some(n), None) => Some(n),
+            (None, Some(r)) => Some(r),
+            (None, None) => None,
+        };
+
+        if let Some(p) = pos {
+            let line_bytes: Vec<u8> = buffer.drain(..=p).collect();
+            let line = String::from_utf8_lossy(&line_bytes);
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                parse_output_line(trimmed, sender, updated_packages).await;
+            }
+        } else {
+            break;
         }
-        parse_output_line(trimmed, sender, updated_packages).await;
     }
 }
 
@@ -405,6 +429,7 @@ fn command_exists(command: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iced::futures::StreamExt;
 
     #[test]
     fn test_parse_install_progress_simple() {
@@ -428,5 +453,73 @@ mod tests {
         let line = "==> Making package: topgrade-bin 16.8.0-1 (Sa 10 Jan 2026 13:23:20 CET)";
         let result = parse_building_package(line);
         assert_eq!(result, Some("topgrade-bin".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_monitor_child_completes_and_captures_output() {
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
+            .arg("echo 'hello world'; echo 'error line' >&2");
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        cmd.stdin(Stdio::null());
+
+        let child = cmd.spawn().expect("Failed to spawn sh");
+
+        let (mut sender, mut receiver) = iced::futures::channel::mpsc::channel(100);
+        let mut updated_packages = Vec::new();
+
+        // Run monitor - this should complete and not hang
+        // We wrap it in a timeout to ensure the test fails fast if it hangs
+        let monitor_future = monitor_child(child, &mut sender, &mut updated_packages);
+
+        if let Err(_) =
+            tokio::time::timeout(std::time::Duration::from_secs(2), monitor_future).await
+        {
+            panic!("monitor_child timed out - likely infinite loop bug");
+        }
+
+        // Drop sender to close channel so we can drain receiver
+        drop(sender);
+
+        let mut captured_logs = Vec::new();
+        while let Some(progress) = receiver.next().await {
+            if let SystemUpdateProgress::LogLine(line) = progress {
+                captured_logs.push(line);
+            }
+        }
+
+        assert!(captured_logs.contains(&"hello world".to_string()));
+        assert!(captured_logs.contains(&"error line".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_process_output_buffer_handles_carriage_returns() {
+        let (mut sender, mut receiver) = iced::futures::channel::mpsc::channel(100);
+        let mut updated_packages = Vec::new();
+
+        // Simulating curl output: "progress 1\rprogress 2\rfinal\n"
+        let mut buffer = Vec::from(b"progress 1\rprogress 2\rfinal\n" as &[u8]);
+
+        process_output_buffer(&mut buffer, &mut sender, &mut updated_packages).await;
+
+        drop(sender);
+
+        let mut lines = Vec::new();
+        while let Some(progress) = receiver.next().await {
+            if let SystemUpdateProgress::LogLine(line) = progress {
+                lines.push(line);
+            }
+        }
+
+        assert_eq!(
+            lines,
+            vec![
+                "progress 1".to_string(),
+                "progress 2".to_string(),
+                "final".to_string()
+            ]
+        );
+        assert!(buffer.is_empty());
     }
 }

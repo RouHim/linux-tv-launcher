@@ -1,8 +1,8 @@
 use iced::widget::{Column, Container, ProgressBar, Row, Text};
 use iced::{Color, Element, Length};
 
+use crate::messages::Message;
 use crate::system_update_state::{SystemUpdateState, UpdateStatus};
-use crate::ui::Message;
 use crate::ui_theme::*;
 
 pub fn render_system_update_modal<'a>(state: &SystemUpdateState) -> Element<'a, Message> {

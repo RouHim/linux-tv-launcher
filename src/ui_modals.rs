@@ -2,8 +2,8 @@ use iced::alignment::Horizontal;
 use iced::widget::{Column, Container, Row, Scrollable, Text};
 use iced::{Color, Element, Length};
 
+use crate::messages::Message;
 use crate::model::Category;
-use crate::ui::Message;
 use crate::ui_theme::*;
 
 pub fn render_context_menu<'a>(selected_index: usize, category: Category) -> Element<'a, Message> {

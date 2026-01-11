@@ -1,19 +1,20 @@
-use iced::alignment::Horizontal;
 use iced::keyboard::{self, key::Named, Key};
 use iced::widget::operation;
-use iced::widget::scrollable;
 
+use crate::ui_modals::{render_context_menu, render_help_modal};
+use crate::ui_system_update_modal::render_system_update_modal;
+use crate::ui_theme::*;
 use iced::window;
 use iced::{
-    widget::{Column, Container, Row, Scrollable, Stack, Text},
+    widget::{Column, Container, Stack},
     Color, Element, Event, Length, Subscription, Task,
 };
-use rayon::prelude::*;
-use std::path::PathBuf;
+use tracing::{info, warn};
 
+use rayon::prelude::*;
+use std::env;
+use std::path::PathBuf;
 use std::time::Duration;
-use std::{env, io, process, thread};
-use uuid::Uuid;
 
 use crate::assets::get_default_icon;
 use crate::category_list::CategoryList;
@@ -22,23 +23,22 @@ use crate::focus_manager::{monitor_app_process, MonitorTarget};
 use crate::game_image_fetcher::GameImageFetcher;
 use crate::game_sources::scan_games;
 use crate::gamepad::gamepad_subscription;
-use crate::icons;
 use crate::image_cache::ImageCache;
 use crate::input::Action;
 use crate::launcher::{launch_app, resolve_monitor_target};
-use crate::model::{AppEntry, Category, LauncherAction, LauncherItem, SystemIcon};
+use crate::messages::Message;
+use crate::model::{AppEntry, Category, LauncherAction, LauncherItem};
 use crate::osk::OskManager;
 use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config};
+use crate::sys_utils::restart_process;
 use crate::system_update::system_update_stream;
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
-use crate::ui_components::render_icon;
-use crate::ui_modals::{render_context_menu, render_help_modal};
-use crate::ui_system_update_modal::render_system_update_modal;
-use crate::ui_theme::*;
-use tracing::{info, warn};
+use crate::ui_main_view::{
+    get_category_dimensions, render_controls_hint, render_section_row, render_status,
+};
 
 enum ModalState {
     None,
@@ -74,34 +74,6 @@ pub struct Launcher {
     game_running: bool,
     osk_manager: OskManager,
     current_exe: Option<PathBuf>,
-}
-
-#[derive(Debug, Clone)]
-pub enum Message {
-    AppsLoaded(Result<Vec<AppEntry>, String>),
-    GamesLoaded(Vec<AppEntry>),
-    ImageFetched(Uuid, PathBuf),
-    Input(Action),
-    ScaleFactorChanged(f64),
-    WindowResized(f32, f32),
-    // App picker messages
-    OpenAppPicker,
-    AvailableAppsLoaded(Vec<DesktopApp>),
-    AddSelectedApp,
-    CloseAppPicker,
-    AppPickerScrolled(iced::widget::scrollable::Viewport),
-    // System Update messages
-    StartSystemUpdate,
-    SystemUpdateProgress(SystemUpdateProgress),
-    CloseSystemUpdateModal,
-    CancelSystemUpdate,
-    RequestReboot,
-    GameExited,
-    WindowOpened(window::Id),
-    WindowFocused(window::Id),
-    AppUpdateResult(Result<bool, String>),
-    RestartApp,
-    None,
 }
 
 impl Launcher {
@@ -492,13 +464,13 @@ impl Launcher {
         let content = self.render_category();
 
         let mut column = Column::new().push(content).spacing(20);
-        if let Some(status) = self.render_status() {
+        if let Some(status) = render_status(&self.status_message) {
             column = column.push(status);
         }
 
         // Add controls hint when no modal is open
         if matches!(&self.modal, ModalState::None) {
-            column = column.push(self.render_controls_hint());
+            column = column.push(render_controls_hint());
         }
 
         let main_content = Container::new(column)
@@ -535,11 +507,8 @@ impl Launcher {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        let _sub_span = tracing::info_span!("startup_subscription_init").entered();
-
         // Disable all input subscriptions while a game is running
         if self.game_running {
-            drop(_sub_span);
             return Subscription::none();
         }
 
@@ -600,7 +569,6 @@ impl Launcher {
             }
         }
 
-        drop(_sub_span);
         Subscription::batch(subscriptions)
     }
 
@@ -719,7 +687,7 @@ impl Launcher {
         let scroll_id = list.scroll_id.clone();
 
         let (item_width, _item_height, _image_width, _image_height) =
-            Self::get_category_dimensions(self.category);
+            get_category_dimensions(self.category);
 
         let spacing = 10.0;
         let item_width_with_spacing = item_width + spacing;
@@ -996,18 +964,6 @@ impl Launcher {
         self.status_message = None;
     }
 
-    fn get_category_dimensions(category: Category) -> (f32, f32, f32, f32) {
-        match category {
-            Category::Games => (
-                GAME_POSTER_WIDTH + 16.0,
-                GAME_POSTER_HEIGHT + 140.0,
-                GAME_POSTER_WIDTH,
-                GAME_POSTER_HEIGHT,
-            ),
-            _ => (ICON_ITEM_WIDTH, ICON_ITEM_HEIGHT, ICON_SIZE, ICON_SIZE),
-        }
-    }
-
     fn render_category(&self) -> Element<'_, Message> {
         let apps_msg = if !self.apps_loaded {
             "Loading apps...".to_string()
@@ -1015,7 +971,13 @@ impl Launcher {
             self.apps_empty_message()
         };
 
-        let apps_row = self.render_section_row(Category::Apps, &self.apps, apps_msg);
+        let apps_row = render_section_row(
+            self.category,
+            Category::Apps,
+            &self.apps,
+            apps_msg,
+            self.default_icon_handle.clone(),
+        );
 
         let games_msg = if !self.games_loaded {
             "Scanning games...".to_string()
@@ -1023,12 +985,20 @@ impl Launcher {
             "No games found.".to_string()
         };
 
-        let games_row = self.render_section_row(Category::Games, &self.games, games_msg);
+        let games_row = render_section_row(
+            self.category,
+            Category::Games,
+            &self.games,
+            games_msg,
+            self.default_icon_handle.clone(),
+        );
 
-        let system_row = self.render_section_row(
+        let system_row = render_section_row(
+            self.category,
             Category::System,
             &self.system_items,
             "No system actions available.".to_string(),
+            self.default_icon_handle.clone(),
         );
 
         Column::new()
@@ -1036,162 +1006,6 @@ impl Launcher {
             .push(games_row)
             .push(system_row)
             .spacing(30)
-            .into()
-    }
-
-    fn render_section_row(
-        &self,
-        category: Category,
-        list: &CategoryList,
-        empty_msg: String,
-    ) -> Element<'_, Message> {
-        let is_active = self.category == category;
-        let selected_index = if is_active { list.selected_index } else { 0 };
-
-        let title = Text::new(category.title())
-            .font(SANSATION)
-            .size(24)
-            .color(if is_active {
-                Color::WHITE
-            } else {
-                COLOR_TEXT_DIM
-            });
-
-        let (item_width, item_height, image_width, image_height) =
-            Self::get_category_dimensions(category);
-
-        let content: Element<'_, Message> = if list.items.is_empty() {
-            Container::new(Text::new(empty_msg).font(SANSATION).color(COLOR_TEXT_DIM))
-                .height(Length::Fixed(item_height))
-                .center_y(Length::Fixed(item_height))
-                .padding(20)
-                .into()
-        } else {
-            let mut row = Row::new().spacing(10);
-
-            for (i, item) in list.items.iter().enumerate() {
-                let is_selected = is_active && (i == selected_index);
-
-                row = row.push(Self::render_item(
-                    item,
-                    is_selected,
-                    image_width,
-                    image_height,
-                    item_width,
-                    item_height,
-                    self.default_icon_handle.clone(),
-                ));
-            }
-
-            Scrollable::new(row)
-                .direction(scrollable::Direction::Horizontal(
-                    scrollable::Scrollbar::new(),
-                ))
-                .id(list.scroll_id.clone())
-                .width(Length::Fill)
-                .height(Length::Shrink)
-                .into()
-        };
-
-        Column::new()
-            .push(title)
-            .push(content)
-            .spacing(10)
-            .padding(10)
-            .into()
-    }
-
-    fn render_item<'a>(
-        item: &LauncherItem,
-        is_selected: bool,
-        image_width: f32,
-        image_height: f32,
-        item_width: f32,
-        _item_height: f32,
-        default_icon_handle: Option<iced::widget::svg::Handle>,
-    ) -> Element<'a, Message> {
-        let icon_widget: Element<'a, Message> = if let Some(sys_icon) = &item.system_icon {
-            match sys_icon {
-                SystemIcon::PowerOff => icons::power_off_icon(image_width),
-                SystemIcon::Pause => icons::pause_icon(image_width),
-                SystemIcon::ArrowsRotate => icons::arrows_rotate_icon(image_width),
-                SystemIcon::ExitBracket => icons::exit_icon(image_width),
-            }
-        } else {
-            render_icon(
-                item.icon.as_ref().map(PathBuf::from),
-                image_width,
-                image_height,
-                "ICON",
-                None,
-                default_icon_handle,
-            )
-        };
-
-        let icon_container = Container::new(icon_widget).padding(6);
-
-        let text = Text::new(item.name.clone());
-
-        let label = text
-            .font(SANSATION)
-            .width(Length::Fixed(item_width)) // Use full item width for text centering
-            .align_x(Horizontal::Center)
-            .color(Color::WHITE)
-            .size(14);
-
-        let content = Column::new()
-            .push(icon_container)
-            .push(label)
-            .align_x(iced::Alignment::Center)
-            .spacing(5);
-
-        Container::new(content)
-            .width(Length::Fixed(item_width))
-            .height(Length::Shrink)
-            .padding(6)
-            .align_x(Horizontal::Center)
-            .align_y(iced::alignment::Vertical::Center)
-            .style(move |_theme| {
-                if is_selected {
-                    iced::widget::container::Style {
-                        border: iced::Border {
-                            color: COLOR_ACCENT,
-                            width: 1.0,
-                            radius: 4.0.into(),
-                        },
-                        ..Default::default()
-                    }
-                } else {
-                    iced::widget::container::Style::default()
-                }
-            })
-            .into()
-    }
-
-    fn render_status(&self) -> Option<Element<'_, Message>> {
-        let status = self.status_message.as_ref()?;
-        Some(
-            Container::new(Text::new(status).font(SANSATION).color(COLOR_STATUS_TEXT))
-                .padding(8)
-                .style(|_theme| iced::widget::container::Style {
-                    background: Some(COLOR_STATUS_BACKGROUND.into()),
-                    text_color: Some(Color::WHITE),
-                    ..Default::default()
-                })
-                .into(),
-        )
-    }
-
-    fn render_controls_hint(&self) -> Element<'_, Message> {
-        let hint = Text::new("Press  −  for controls")
-            .font(SANSATION)
-            .size(14)
-            .color(COLOR_TEXT_DIM);
-
-        Container::new(hint)
-            .width(Length::Fill)
-            .center_x(Length::Fill)
-            .padding(10)
             .into()
     }
 
@@ -1226,42 +1040,6 @@ impl Launcher {
         } else {
             "No apps configured.".to_string()
         }
-    }
-}
-
-/// Restarts the current process
-fn restart_process(current_executable: PathBuf) {
-    println!(
-        "Restarting {} in 3 seconds...",
-        current_executable.display()
-    );
-    thread::sleep(Duration::from_secs(3));
-    let err = exec(process::Command::new(current_executable.clone()).args(env::args().skip(1)));
-    eprintln!(
-        "Error: Failed to restart process {}: {}",
-        current_executable.display(),
-        err
-    );
-    std::process::exit(1);
-}
-
-/// Replaces the current process with a new one
-/// This function is only available on Unix platforms
-#[cfg(unix)]
-fn exec(command: &mut process::Command) -> io::Error {
-    use std::os::unix::process::CommandExt as _;
-    // Completely replace the current process image. If successful, execution
-    // of the current process stops here.
-    command.exec()
-}
-
-#[cfg(windows)]
-fn exec(command: &mut process::Command) -> io::Error {
-    // On Windows, we cannot replace the current process, so we just spawn a new one
-    // and exit the current one.
-    match command.spawn() {
-        Ok(_) => std::process::exit(0),
-        Err(err) => err,
     }
 }
 

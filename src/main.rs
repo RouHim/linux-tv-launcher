@@ -11,16 +11,19 @@ mod icons;
 mod image_cache;
 mod input;
 mod launcher;
+mod messages;
 mod model;
 mod osk;
 mod searxng;
 mod steamgriddb;
 mod storage;
+mod sys_utils;
 mod system_update;
 mod system_update_state;
 mod ui;
 mod ui_app_picker;
 mod ui_components;
+mod ui_main_view;
 mod ui_modals;
 mod ui_system_update_modal;
 mod ui_theme;
@@ -40,7 +43,9 @@ fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() -> iced::Result {
-    init_logging().unwrap();
+    if let Err(e) = init_logging() {
+        eprintln!("Failed to initialize logging: {}", e);
+    }
 
     let mut settings = iced::Settings::default();
     if let Some(sansation) = assets::get_sansation_font() {
@@ -54,5 +59,10 @@ fn main() -> iced::Result {
         .title(ui::Launcher::title)
         .subscription(ui::Launcher::subscription)
         .settings(settings)
+        .window(iced::window::Settings {
+            decorations: false,
+            fullscreen: true,
+            ..Default::default()
+        })
         .run()
 }

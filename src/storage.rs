@@ -20,16 +20,23 @@ pub fn config_path() -> Result<PathBuf> {
     Ok(config_dir.join("config.json"))
 }
 
+/// Load application configuration from disk
 pub fn load_config() -> Result<Vec<AppEntry>> {
+    let _load_span = tracing::info_span!("startup_load_config").entered();
+
     let path = config_path()?;
     if !path.exists() {
+        tracing::debug!("Config file does not exist, returning empty list");
         return Ok(Vec::new());
     }
 
+    tracing::debug!(?path, "Loading config file");
     let content = fs::read_to_string(&path).context("Failed to read config file")?;
     let apps: Vec<AppEntry> =
         serde_json::from_str(&content).context("Failed to parse config file")?;
 
+    tracing::debug!("Loaded {} apps from config", apps.len());
+    drop(_load_span);
     Ok(apps)
 }
 

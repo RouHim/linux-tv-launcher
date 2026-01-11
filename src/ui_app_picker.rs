@@ -4,7 +4,7 @@ use iced::widget::{Column, Container, Grid, Scrollable, Text};
 use iced::{Color, Element, Length};
 
 use crate::desktop_apps::DesktopApp;
-use crate::ui::Message;
+use crate::messages::Message;
 use crate::ui_components::render_icon;
 use crate::ui_theme::*;
 

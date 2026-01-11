@@ -1,21 +1,29 @@
 use crate::model::AppEntry;
 use directories::BaseDirs;
+use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, warn};
 
+/// Scan all game sources (Steam, Heroic) in parallel and return unique entries
 pub fn scan_games() -> Vec<AppEntry> {
+    let _scan_span = tracing::info_span!("startup_scan_games").entered();
+
+    // Scan Steam and Heroic games concurrently
     let (steam_games, heroic_games) = rayon::join(scan_steam_games, scan_heroic_games);
 
+    // Combine results
     let mut games = Vec::new();
     games.extend(steam_games);
     games.extend(heroic_games);
 
-    games.sort_by(|a, b| a.name.cmp(&b.name));
+    // Sort and deduplicate
+    games.sort_by(|a, b| a.name.cmp(&b.name).then(a.exec.cmp(&b.exec)));
     games.dedup_by(|a, b| a.name == b.name && a.exec == b.exec);
 
+    drop(_scan_span);
     games
 }
 
@@ -56,50 +64,50 @@ fn scan_steam_games() -> Vec<AppEntry> {
         }
     }
 
-    let mut games = Vec::new();
+    // Collect all manifest file paths
+    let mut manifest_paths = Vec::new();
     for library in unique_paths {
         let steamapps = library.join("steamapps");
-        let entries = match fs::read_dir(&steamapps) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !is_manifest_file(&path) {
-                continue;
-            }
-
-            let appid_from_name = appid_from_manifest_path(&path);
-            let contents = match fs::read_to_string(&path) {
-                Ok(contents) => contents,
-                Err(_) => continue,
-            };
-
-            let Some(mut manifest) = parse_steam_manifest(&contents) else {
-                continue;
-            };
-
-            if manifest.appid.is_empty() {
-                if let Some(appid) = appid_from_name {
-                    manifest.appid = appid;
+        if let Ok(entries) = fs::read_dir(&steamapps) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if is_manifest_file(&path) {
+                    manifest_paths.push(path);
                 }
             }
-
-            if manifest.appid.is_empty() {
-                continue;
-            }
-
-            if is_ignored_app(&manifest.name, &manifest.appid) {
-                continue;
-            }
-
-            let exec = format!("steam -applaunch {}", manifest.appid);
-            games.push(AppEntry::new(manifest.name, exec, None));
         }
     }
 
+    // Process manifests in parallel for better performance
+    let games: Vec<AppEntry> = manifest_paths
+        .par_iter()
+        .filter_map(|path| parse_steam_manifest_file(path))
+        .collect();
+
     games
+}
+
+/// Parse a single Steam manifest file and return an AppEntry if valid
+fn parse_steam_manifest_file(path: &Path) -> Option<AppEntry> {
+    let appid_from_name = appid_from_manifest_path(path);
+    let contents = fs::read_to_string(path).ok()?;
+    let mut manifest = parse_steam_manifest(&contents).or_else(|| {
+        warn!("Failed to parse manifest: {:?}", path);
+        None
+    })?;
+
+    if manifest.appid.is_empty() {
+        if let Some(appid) = appid_from_name {
+            manifest.appid = appid;
+        }
+    }
+
+    if manifest.appid.is_empty() || is_ignored_app(&manifest.name, &manifest.appid) {
+        return None;
+    }
+
+    let exec = format!("steam -applaunch {}", manifest.appid);
+    Some(AppEntry::new(manifest.name, exec, None))
 }
 
 fn is_ignored_app(name: &str, id: &str) -> bool {
@@ -643,5 +651,22 @@ mod tests {
             games[0].art_cover,
             Some("https://example.com/cover.png".to_string())
         );
+    }
+
+    #[test]
+    fn test_deduplication_logic() {
+        let mut games = vec![
+            AppEntry::new("Game".to_string(), "exec1".to_string(), None),
+            AppEntry::new("Game".to_string(), "exec2".to_string(), None),
+            AppEntry::new("Game".to_string(), "exec1".to_string(), None),
+        ];
+
+        // Sort and deduplicate logic used in scan_games
+        games.sort_by(|a, b| a.name.cmp(&b.name).then(a.exec.cmp(&b.exec)));
+        games.dedup_by(|a, b| a.name == b.name && a.exec == b.exec);
+
+        assert_eq!(games.len(), 2);
+        assert_eq!(games[0].exec, "exec1");
+        assert_eq!(games[1].exec, "exec2");
     }
 }
