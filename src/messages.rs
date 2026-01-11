@@ -7,6 +7,7 @@ use crate::desktop_apps::DesktopApp;
 use crate::input::Action;
 use crate::model::AppEntry;
 use crate::storage::AppConfig;
+use crate::system_info::GamingSystemInfo;
 use crate::system_update_state::SystemUpdateProgress;
 
 #[derive(Debug, Clone)]
@@ -29,6 +30,11 @@ pub enum Message {
     CloseSystemUpdateModal,
     CancelSystemUpdate,
     RequestReboot,
+    // System Info messages
+    OpenSystemInfo,
+    SystemInfoLoaded(GamingSystemInfo),
+    CloseSystemInfoModal,
+    // Game/App lifecycle
     GameExited,
     WindowOpened(window::Id),
     WindowFocused(window::Id),

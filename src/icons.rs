@@ -25,3 +25,7 @@ pub fn exit_icon<'a, Message: 'a>(size: f32) -> Element<'a, Message> {
         .color(Color::WHITE)
         .into()
 }
+
+pub fn info_icon<'a, Message: 'a>(size: f32) -> Element<'a, Message> {
+    fontawesome::info().size(size).color(Color::WHITE).into()
+}

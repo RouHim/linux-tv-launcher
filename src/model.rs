@@ -7,6 +7,7 @@ pub enum SystemIcon {
     Pause,
     ArrowsRotate,
     ExitBracket,
+    Info,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,6 +47,7 @@ impl Category {
 pub enum LauncherAction {
     Launch { exec: String },
     SystemUpdate,
+    SystemInfo,
     Shutdown,
     Suspend,
     Exit,
@@ -92,6 +94,18 @@ impl LauncherItem {
             icon: None,
             system_icon: Some(SystemIcon::ArrowsRotate),
             action: LauncherAction::SystemUpdate,
+            source_image_url: None,
+            game_executable: None,
+        }
+    }
+
+    pub fn system_info() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: "System Info".to_string(),
+            icon: None,
+            system_icon: Some(SystemIcon::Info),
+            action: LauncherAction::SystemInfo,
             source_image_url: None,
             game_executable: None,
         }

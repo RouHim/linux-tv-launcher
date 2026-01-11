@@ -100,6 +100,7 @@ fn render_item<'a>(
             SystemIcon::Pause => icons::pause_icon(image_width),
             SystemIcon::ArrowsRotate => icons::arrows_rotate_icon(image_width),
             SystemIcon::ExitBracket => icons::exit_icon(image_width),
+            SystemIcon::Info => icons::info_icon(image_width),
         }
     } else {
         render_icon(

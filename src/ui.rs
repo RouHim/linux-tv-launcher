@@ -34,6 +34,7 @@ use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{config_path, load_config, save_config, AppConfig};
 use crate::sys_utils::restart_process;
+use crate::system_info::{fetch_system_info, GamingSystemInfo};
 use crate::system_update::system_update_stream;
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
@@ -41,12 +42,14 @@ use crate::ui_components::render_clock;
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
 };
+use crate::ui_system_info_modal::render_system_info_modal;
 
 enum ModalState {
     None,
     ContextMenu { index: usize },
     AppPicker(AppPickerState),
     SystemUpdate(SystemUpdateState),
+    SystemInfo(Option<GamingSystemInfo>),
     Help,
 }
 
@@ -106,6 +109,7 @@ impl Launcher {
                 LauncherItem::shutdown(),
                 LauncherItem::suspend(),
                 LauncherItem::system_update(),
+                LauncherItem::system_info(),
                 LauncherItem::exit(),
             ]),
             category: Category::Apps,
@@ -392,6 +396,29 @@ impl Launcher {
                 }
                 Task::none()
             }
+            Message::OpenSystemInfo => {
+                self.modal = ModalState::SystemInfo(None);
+                Task::perform(
+                    async { tokio::task::spawn_blocking(fetch_system_info).await.ok() },
+                    |info| {
+                        if let Some(info) = info {
+                            Message::SystemInfoLoaded(info)
+                        } else {
+                            Message::None
+                        }
+                    },
+                )
+            }
+            Message::SystemInfoLoaded(info) => {
+                if let ModalState::SystemInfo(state) = &mut self.modal {
+                    *state = Some(info);
+                }
+                Task::none()
+            }
+            Message::CloseSystemInfoModal => {
+                self.modal = ModalState::None;
+                Task::none()
+            }
             Message::GameExited => {
                 self.game_running = false;
                 info!("Game/App process exited. Recreating window to regain focus.");
@@ -533,6 +560,7 @@ impl Launcher {
             ModalState::ContextMenu { index } => Some(render_context_menu(*index, self.category)),
             ModalState::AppPicker(state) => Some(render_app_picker(state, &self.available_apps)),
             ModalState::SystemUpdate(state) => Some(render_system_update_modal(state)),
+            ModalState::SystemInfo(info) => Some(render_system_info_modal(info)),
             ModalState::Help => Some(render_help_modal()),
             ModalState::None => None,
         }
@@ -614,6 +642,7 @@ impl Launcher {
             ModalState::ContextMenu { .. } => Some(self.handle_context_menu_navigation(action)),
             ModalState::AppPicker(_) => Some(self.handle_app_picker_navigation(action)),
             ModalState::SystemUpdate(_) => Some(self.handle_system_update_navigation(action)),
+            ModalState::SystemInfo(_) => Some(self.handle_system_info_navigation(action)),
             ModalState::None => None,
         }
     }
@@ -851,6 +880,16 @@ impl Launcher {
         Task::none()
     }
 
+    fn handle_system_info_navigation(&mut self, action: Action) -> Task<Message> {
+        match action {
+            Action::Back | Action::Select | Action::ShowHelp => {
+                return self.update(Message::CloseSystemInfoModal);
+            }
+            _ => {}
+        }
+        Task::none()
+    }
+
     fn snap_to_picker_selection(&self) -> Task<Message> {
         let Some(state) = self.app_picker_state() else {
             return Task::none();
@@ -945,6 +984,7 @@ impl Launcher {
                 self.launch_app(exec, &item.name, item.game_executable.as_ref())
             }
             LauncherAction::SystemUpdate => self.update(Message::StartSystemUpdate),
+            LauncherAction::SystemInfo => self.update(Message::OpenSystemInfo),
             LauncherAction::Shutdown => self.system_command("systemctl", &["poweroff"], "shutdown"),
             LauncherAction::Suspend => self.system_command("systemctl", &["suspend"], "suspend"),
             LauncherAction::Exit => self.exit_app(),
