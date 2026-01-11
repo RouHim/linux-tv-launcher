@@ -195,21 +195,40 @@ fn get_wine_versions() -> Vec<(String, String)> {
     }
 }
 
-fn extract_version(name: &str) -> String {
-    if let Some(space_pos) = name.find(' ') {
-        name[space_pos..].trim().to_string()
-    } else if let Some(dash_pos) = name.find('-') {
-        name[dash_pos + 1..].to_string()
-    } else {
-        "Unknown".to_string()
+/// Read version from a Proton installation directory's version file
+fn read_proton_version_file(dir: &std::path::Path) -> Option<String> {
+    let version_file = dir.join("version");
+    if let Ok(content) = fs::read_to_string(&version_file) {
+        // Format: "1767307616 GE-Proton10-28" - take second part
+        let parts: Vec<&str> = content.split_whitespace().collect();
+        if parts.len() >= 2 {
+            return Some(parts[1..].join(" "));
+        } else if !content.trim().is_empty() {
+            return Some(content.trim().to_string());
+        }
     }
+    None
+}
+
+/// Extract version from directory name as fallback
+fn extract_version_from_name(name: &str) -> String {
+    // Handle names like "GE-Proton10-28", "Proton 9.0", "Proton-8.0"
+    if let Some(idx) = name.to_lowercase().find("proton") {
+        let after_proton = &name[idx + 6..]; // Skip "proton"
+        let version = after_proton.trim_start_matches(['-', ' ', '_']);
+        if !version.is_empty() {
+            return version.to_string();
+        }
+    }
+    "Unknown".to_string()
 }
 
 fn get_proton_versions() -> Vec<(String, String)> {
     let mut versions = Vec::new();
     let home = env::var("HOME").unwrap_or_else(|_| "/".to_string());
 
-    let search_paths = vec![
+    // User home directories
+    let mut search_paths = vec![
         PathBuf::from(&home).join(".steam/steam/steamapps/common"),
         PathBuf::from(&home).join(".local/share/Steam/steamapps/common"),
         PathBuf::from(&home).join(".steam/root/compatibilitytools.d"),
@@ -219,14 +238,23 @@ fn get_proton_versions() -> Vec<(String, String)> {
         PathBuf::from(&home).join(".local/share/Steam/compatibility-tools.d"),
         PathBuf::from(&home)
             .join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d"),
+        // Snap
+        PathBuf::from(&home).join("snap/steam/common/.steam/steam/compatibilitytools.d"),
     ];
 
+    // System-wide directories
+    search_paths.push(PathBuf::from("/usr/share/steam/compatibilitytools.d"));
+    search_paths.push(PathBuf::from("/usr/local/share/steam/compatibilitytools.d"));
+
     for path in search_paths {
-        if let Ok(entries) = fs::read_dir(path) {
+        if let Ok(entries) = fs::read_dir(&path) {
             for entry in entries.flatten() {
                 if let Ok(file_name) = entry.file_name().into_string() {
                     if file_name.to_lowercase().contains("proton") {
-                        let version = extract_version(&file_name);
+                        let entry_path = entry.path();
+                        // Try to read version file first, fallback to extracting from name
+                        let version = read_proton_version_file(&entry_path)
+                            .unwrap_or_else(|| extract_version_from_name(&file_name));
                         versions.push((file_name, version));
                     }
                 }
