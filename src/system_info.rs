@@ -21,10 +21,33 @@ pub struct ZramInfo {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct ControllerInfo {
+    pub name: String,
+    pub device_path: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct KernelTweaks {
+    pub vm_max_map_count: u64,
+    pub vm_max_map_count_ok: bool,
+    pub swappiness: u8,
+    pub swappiness_ok: bool,
+    pub clocksource: String,
+    pub clocksource_ok: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GameModeInfo {
+    pub available: bool,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct GamingSystemInfo {
     pub os_name: String,
     pub kernel_version: String,
     pub cpu_model: String,
+    pub cpu_governor: String,
     pub memory_total: String,
     pub memory_used: String,
     pub gpu_info: String,
@@ -35,12 +58,16 @@ pub struct GamingSystemInfo {
     pub proton_versions: Vec<(String, String)>,
     pub disks: Vec<DiskInfo>,
     pub zram: ZramInfo,
+    pub controllers: Vec<ControllerInfo>,
+    pub kernel_tweaks: KernelTweaks,
+    pub gamemode: GameModeInfo,
 }
 
 pub fn fetch_system_info() -> GamingSystemInfo {
     let os_name = get_os_name();
     let kernel_version = get_kernel_version();
     let cpu_model = get_cpu_model();
+    let cpu_governor = get_cpu_governor();
     let (memory_total, memory_used) = get_memory_info();
     let (gpu_info, gpu_driver) = get_gpu_info();
     let vulkan_info = get_vulkan_info();
@@ -49,11 +76,15 @@ pub fn fetch_system_info() -> GamingSystemInfo {
     let proton_versions = get_proton_versions();
     let disks = get_disk_info();
     let zram = get_zram_info();
+    let controllers = get_controllers();
+    let kernel_tweaks = get_kernel_tweaks();
+    let gamemode = get_gamemode_info();
 
     GamingSystemInfo {
         os_name,
         kernel_version,
         cpu_model,
+        cpu_governor,
         memory_total,
         memory_used,
         gpu_info,
@@ -64,6 +95,9 @@ pub fn fetch_system_info() -> GamingSystemInfo {
         proton_versions,
         disks,
         zram,
+        controllers,
+        kernel_tweaks,
+        gamemode,
     }
 }
 
@@ -409,4 +443,105 @@ fn get_zram_info() -> ZramInfo {
         used: format_bytes(used_kb * 1024),
         usage_percent,
     }
+}
+
+fn get_cpu_governor() -> String {
+    // Read governor from first CPU (they're usually all the same)
+    if let Ok(governor) =
+        fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+    {
+        return governor.trim().to_string();
+    }
+    "Unknown".to_string()
+}
+
+fn get_controllers() -> Vec<ControllerInfo> {
+    let mut controllers = Vec::new();
+
+    // Check /dev/input for joystick devices
+    if let Ok(entries) = fs::read_dir("/dev/input") {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+
+            // Look for js* devices (joysticks) and event* devices
+            if file_name.starts_with("js") {
+                let device_path = entry.path().to_string_lossy().to_string();
+
+                // Try to get the device name from sysfs
+                let js_num = file_name.trim_start_matches("js");
+                let name_path = format!("/sys/class/input/js{}/device/name", js_num);
+
+                let name = fs::read_to_string(&name_path)
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|_| file_name.clone());
+
+                controllers.push(ControllerInfo { name, device_path });
+            }
+        }
+    }
+
+    // Sort by device path for consistent ordering
+    controllers.sort_by(|a, b| a.device_path.cmp(&b.device_path));
+    controllers
+}
+
+fn get_kernel_tweaks() -> KernelTweaks {
+    // vm.max_map_count - recommended: 2147483642 (SteamOS default), minimum good: 1048576 (Arch default)
+    let vm_max_map_count = fs::read_to_string("/proc/sys/vm/max_map_count")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    let vm_max_map_count_ok = vm_max_map_count >= 1048576;
+
+    // Swappiness - for gaming, lower is better (10 recommended)
+    let swappiness = fs::read_to_string("/proc/sys/vm/swappiness")
+        .ok()
+        .and_then(|s| s.trim().parse::<u8>().ok())
+        .unwrap_or(60);
+    let swappiness_ok = swappiness <= 10;
+
+    // Clocksource - TSC is fastest, HPET/acpi_pm are slower
+    let clocksource =
+        fs::read_to_string("/sys/devices/system/clocksource/clocksource0/current_clocksource")
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|_| "Unknown".to_string());
+    let clocksource_ok = clocksource == "tsc";
+
+    KernelTweaks {
+        vm_max_map_count,
+        vm_max_map_count_ok,
+        swappiness,
+        swappiness_ok,
+        clocksource,
+        clocksource_ok,
+    }
+}
+
+fn get_gamemode_info() -> GameModeInfo {
+    // Check if gamemoded binary is available
+    let available = Command::new("which")
+        .arg("gamemoded")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    // Check if gamemode is currently active by querying gamemoded
+    // gamemoded --status returns 0 if active, 1 if inactive
+    let active = if available {
+        Command::new("gamemoded")
+            .arg("--status")
+            .output()
+            .map(|o| {
+                // Status code: 0 = active, other = inactive
+                // Output contains "gamemode is active" or "gamemode is inactive"
+                let output = String::from_utf8_lossy(&o.stdout);
+                output.to_lowercase().contains("active")
+                    && !output.to_lowercase().contains("inactive")
+            })
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    GameModeInfo { available, active }
 }
