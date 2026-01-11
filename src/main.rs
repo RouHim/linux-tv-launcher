@@ -1,4 +1,4 @@
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{fmt, EnvFilter};
 
 mod assets;
 mod category_list;
@@ -26,27 +26,33 @@ mod ui_system_update_modal;
 mod ui_theme;
 mod updater;
 
-use iced_fonts::FONTAWESOME_FONT_BYTES;
-use ui::Launcher;
+fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
+    let mut env_filter = EnvFilter::from_default_env();
+    env_filter = env_filter.add_directive("linux_tv_launcher=info".parse()?);
+    env_filter = env_filter.add_directive("tracing=info".parse()?);
+
+    fmt()
+        .with_env_filter(env_filter)
+        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
+        .init();
+
+    Ok(())
+}
 
 fn main() -> iced::Result {
-    let mut env_filter = EnvFilter::from_default_env();
-    if let Ok(directive) = "linux_tv_launcher=info".parse() {
-        env_filter = env_filter.add_directive(directive);
+    init_logging().unwrap();
+
+    let mut settings = iced::Settings::default();
+    if let Some(sansation) = assets::get_sansation_font() {
+        settings.fonts.push(sansation.into());
     }
+    settings
+        .fonts
+        .push(iced_fonts::FONTAWESOME_FONT_BYTES.into());
 
-    tracing_subscriber::fmt().with_env_filter(env_filter).init();
-
-    iced::application(Launcher::new, Launcher::update, Launcher::view)
-        .title(|launcher: &Launcher| launcher.title())
-        .subscription(Launcher::subscription)
-        .font(assets::get_sansation_font().expect("Sansation font embedded"))
-        .font(FONTAWESOME_FONT_BYTES)
-        .window(iced::window::Settings {
-            decorations: false,
-            fullscreen: true,
-            level: iced::window::Level::AlwaysOnTop,
-            ..Default::default()
-        })
+    iced::application(ui::Launcher::new, ui::Launcher::update, ui::Launcher::view)
+        .title(ui::Launcher::title)
+        .subscription(ui::Launcher::subscription)
+        .settings(settings)
         .run()
 }

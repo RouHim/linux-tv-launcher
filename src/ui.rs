@@ -106,6 +106,8 @@ pub enum Message {
 
 impl Launcher {
     pub fn new() -> (Self, Task<Message>) {
+        let _init_span = tracing::info_span!("startup_launcher_init").entered();
+
         let default_icon = get_default_icon().map(iced::widget::svg::Handle::from_memory);
         let config_path = config_path().ok().map(|path| path.display().to_string());
 
@@ -143,26 +145,24 @@ impl Launcher {
             current_exe,
         };
 
-        (
-            launcher,
-            Task::batch(vec![
-                Task::perform(
-                    async { load_config().map_err(|err| err.to_string()) },
-                    Message::AppsLoaded,
-                ),
-                Task::perform(async { scan_games() }, Message::GamesLoaded),
-                // Run app update check in background on startup
-                Task::perform(
-                    async {
-                        tokio::task::spawn_blocking(crate::updater::check_for_updates)
-                            .await
-                            .map_err(|e| format!("Task join error: {}", e))
-                            .and_then(|r| r)
-                    },
-                    Message::AppUpdateResult,
-                ),
-            ]),
-        )
+        let tasks = Task::batch(vec![
+            Task::perform(
+                async { load_config().map_err(|err| err.to_string()) },
+                Message::AppsLoaded,
+            ),
+            Task::perform(
+                async {
+                    tokio::task::spawn_blocking(scan_games)
+                        .await
+                        .unwrap_or_else(|_| Vec::new())
+                },
+                Message::GamesLoaded,
+            ),
+        ]);
+
+        drop(_init_span);
+
+        (launcher, tasks)
     }
 
     pub fn title(&self) -> String {
@@ -415,7 +415,16 @@ impl Launcher {
             Message::WindowOpened(id) => {
                 info!("Main window opened with ID: {:?}", id);
                 self.window_id = Some(id);
-                Task::none()
+                // Defer update check until window is ready
+                Task::perform(
+                    async {
+                        tokio::task::spawn_blocking(crate::updater::check_for_updates)
+                            .await
+                            .map_err(|e| format!("Task join error: {}", e))
+                            .and_then(|r| r)
+                    },
+                    Message::AppUpdateResult,
+                )
             }
             Message::WindowFocused(id) => {
                 if self.window_id.is_none() {
@@ -526,8 +535,11 @@ impl Launcher {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
+        let _sub_span = tracing::info_span!("startup_subscription_init").entered();
+
         // Disable all input subscriptions while a game is running
         if self.game_running {
+            drop(_sub_span);
             return Subscription::none();
         }
 
@@ -588,6 +600,7 @@ impl Launcher {
             }
         }
 
+        drop(_sub_span);
         Subscription::batch(subscriptions)
     }
 
@@ -915,72 +928,62 @@ impl Launcher {
     }
 
     fn activate_selected(&mut self) -> Task<Message> {
-        let selection = self.current_category_list().get_selected().map(|item| {
-            (
-                item.action.clone(),
-                item.name.clone(),
-                item.game_executable.clone(),
-            )
-        });
-
-        let Some((action, item_name, game_executable)) = selection else {
+        if self.current_category_list().get_selected().is_none() {
             return Task::none();
-        };
+        }
 
         self.status_message = None;
 
-        match action {
+        let item = self.current_category_list().get_selected().unwrap().clone();
+
+        match &item.action {
             LauncherAction::Launch { exec } => {
-                let monitor_target =
-                    resolve_monitor_target(&exec, &item_name, game_executable.as_ref());
+                self.launch_app(exec, &item.name, item.game_executable.as_ref())
+            }
+            LauncherAction::SystemUpdate => self.update(Message::StartSystemUpdate),
+            LauncherAction::Shutdown => self.system_command("systemctl", &["poweroff"], "shutdown"),
+            LauncherAction::Suspend => self.system_command("systemctl", &["suspend"], "suspend"),
+            LauncherAction::Exit => self.exit_app(),
+        }
+    }
 
-                match launch_app(&exec) {
-                    Ok(pid) => {
-                        self.game_running = true;
-                        let target = monitor_target.unwrap_or(MonitorTarget::Pid(pid));
-                        let monitor_task =
-                            Task::perform(async move { monitor_app_process(target).await }, |_| {
-                                Message::GameExited
-                            });
+    /// Launch an application with proper process monitoring
+    fn launch_app(
+        &mut self,
+        exec: &str,
+        item_name: &str,
+        game_executable: Option<&String>,
+    ) -> Task<Message> {
+        let monitor_target = resolve_monitor_target(exec, item_name, game_executable);
 
-                        if let Some(id) = self.window_id {
-                            Task::batch(vec![window::minimize(id, true), monitor_task])
-                        } else {
-                            monitor_task
-                        }
-                    }
-                    Err(err) => {
-                        self.status_message = Some(err.to_string());
-                        Task::none()
-                    }
+        match launch_app(exec) {
+            Ok(pid) => {
+                self.game_running = true;
+                let target = monitor_target.unwrap_or(MonitorTarget::Pid(pid));
+                let monitor_task =
+                    Task::perform(async move { monitor_app_process(target).await }, |_| {
+                        Message::GameExited
+                    });
+
+                if let Some(id) = self.window_id {
+                    Task::batch(vec![window::minimize(id, true), monitor_task])
+                } else {
+                    monitor_task
                 }
             }
-            LauncherAction::SystemUpdate => {
-                // Trigger the modal start
-                self.update(Message::StartSystemUpdate)
-            }
-            LauncherAction::Shutdown => {
-                if let Err(e) = std::process::Command::new("systemctl")
-                    .arg("poweroff")
-                    .spawn()
-                {
-                    self.status_message = Some(format!("Failed to shutdown: {}", e));
-                }
+            Err(err) => {
+                self.status_message = Some(err.to_string());
                 Task::none()
-            }
-            LauncherAction::Suspend => {
-                if let Err(e) = std::process::Command::new("systemctl")
-                    .arg("suspend")
-                    .spawn()
-                {
-                    self.status_message = Some(format!("Failed to suspend: {}", e));
-                }
-                Task::none()
-            }
-            LauncherAction::Exit => {
-                self.exit_app();
             }
         }
+    }
+
+    /// Execute a system command and handle errors
+    fn system_command(&mut self, command: &str, args: &[&str], action: &str) -> Task<Message> {
+        if let Err(e) = std::process::Command::new(command).args(args).spawn() {
+            self.status_message = Some(format!("Failed to {}: {}", action, e));
+        }
+        Task::none()
     }
 
     fn cycle_category(&mut self) {
