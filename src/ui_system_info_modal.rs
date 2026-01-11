@@ -88,7 +88,7 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
 
     // Modal box
     let modal_box = Container::new(modal_column)
-        .width(Length::Fixed(600.0))
+        .width(Length::Fixed(800.0))
         .height(Length::FillPortion(80))
         .padding(20)
         .style(|_| iced::widget::container::Style {
