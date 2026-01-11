@@ -97,50 +97,56 @@ fn get_memory_info() -> (String, String) {
 }
 
 fn get_gpu_info() -> (String, String) {
-    // Try glxinfo first as it gives a nice summary
-    if let Ok(output) = Command::new("glxinfo").arg("-B").output() {
-        let output_str = String::from_utf8_lossy(&output.stdout);
-        let mut renderer = String::new();
-        let mut version = String::new();
+    let mut gpus = Vec::new();
+    let mut driver_info = String::from("Unknown");
 
-        for line in output_str.lines() {
-            let line = line.trim();
-            if line.starts_with("OpenGL renderer string:") {
-                renderer = line
-                    .trim_start_matches("OpenGL renderer string:")
-                    .trim()
-                    .to_string();
-            } else if line.starts_with("OpenGL version string:") {
-                version = line
-                    .trim_start_matches("OpenGL version string:")
-                    .trim()
-                    .to_string();
-            }
-        }
-
-        if !renderer.is_empty() {
-            return (renderer, version);
-        }
-    }
-
-    // Fallback to lspci
+    // 1. Get all GPUs from lspci
     let lspci = Command::new("lspci")
+        .arg("-mm") // Machine readable: "Slot" "Class" "Vendor" "Device" ...
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
 
     for line in lspci.lines() {
-        if line.contains("VGA") || line.contains("3D controller") {
-            let info = line
-                .split(':')
-                .nth(2)
-                .map(|s| s.trim().to_string())
-                .unwrap_or(line.to_string());
-            return (info, "Unknown Driver".to_string());
+        // Look for VGA or 3D controller classes
+        // lspci -mm output format is roughly:
+        // 00:02.0 "VGA compatible controller" "Intel Corporation" "UHD Graphics 620" ...
+        if line.contains("\"VGA") || line.contains("\"3D") {
+            // Split by quotes to get fields
+            // parts[0] is slot (no quotes), parts[1] is empty (between slot and quote),
+            // parts[2] is Class, parts[4] is Vendor, parts[6] is Device
+            let parts: Vec<&str> = line.split('"').collect();
+            if parts.len() >= 7 {
+                let vendor = parts[3];
+                let model = parts[5];
+                gpus.push(format!("{} {}", vendor, model));
+            } else {
+                // Fallback parsing if split fails
+                gpus.push(line.replace("\"", "").to_string());
+            }
         }
     }
 
-    ("Unknown GPU".to_string(), "Unknown".to_string())
+    // 2. Get active driver/renderer from glxinfo
+    if let Ok(output) = Command::new("glxinfo").arg("-B").output() {
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        for line in output_str.lines() {
+            let line = line.trim();
+            if line.starts_with("OpenGL version string:") {
+                // Example: "4.6 (Compatibility Profile) Mesa 23.1.3"
+                driver_info = line
+                    .trim_start_matches("OpenGL version string:")
+                    .trim()
+                    .to_string();
+            }
+        }
+    }
+
+    if gpus.is_empty() {
+        ("Unknown GPU".to_string(), driver_info)
+    } else {
+        (gpus.join("\n"), driver_info)
+    }
 }
 
 fn get_vulkan_info() -> String {
