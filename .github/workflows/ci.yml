@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -42,31 +42,134 @@ jobs:
           STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
         run: cargo build --release
 
-  musl-build:
+  build-x64:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
+    name: Build x86_64-unknown-linux-musl
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for semantic-release
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-unknown-linux-musl
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-unknown-linux-musl
 
       - name: Install cross
         run: cargo install cross
 
-      - name: Build ${{ matrix.target }} musl release
+      - name: Build x86_64-unknown-linux-musl release
         env:
           STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
-        run: cross build --target ${{ matrix.target }} --release
+        run: cross build --target x86_64-unknown-linux-musl --release
+
+      - name: Strip binary
+        run: strip target/x86_64-unknown-linux-musl/release/linux-tv-launcher
+
+      - name: Create tar.gz archive
+        run: |
+          cd target/x86_64-unknown-linux-musl/release
+          tar -czf ../../../linux-tv-launcher-x86_64-unknown-linux-musl.tar.gz linux-tv-launcher
+          cd -
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tv-launcher-x86_64-unknown-linux-musl
+          path: linux-tv-launcher-x86_64-unknown-linux-musl.tar.gz
+          retention-days: 1
+
+  build-arm64:
+    runs-on: ubuntu-arm64
+    name: Build aarch64-unknown-linux-musl
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for semantic-release
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64-unknown-linux-musl
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config
+
+      - name: Build aarch64-unknown-linux-musl release (native)
+        env:
+          STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
+        run: cargo build --target aarch64-unknown-linux-musl --release
+
+      - name: Strip binary
+        run: strip target/aarch64-unknown-linux-musl/release/linux-tv-launcher
+
+      - name: Create tar.gz archive
+        run: |
+          cd target/aarch64-unknown-linux-musl/release
+          tar -czf ../../../linux-tv-launcher-aarch64-unknown-linux-musl.tar.gz linux-tv-launcher
+          cd -
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tv-launcher-aarch64-unknown-linux-musl
+          path: linux-tv-launcher-aarch64-unknown-linux-musl.tar.gz
+          retention-days: 1
+
+  release:
+    needs: [check, build-x64, build-arm64]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Semantic Release
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history required for semantic-release
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-tv-launcher-x86_64-unknown-linux-musl
+          path: ./release-artifacts/
+
+      - name: Download ARM64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-tv-launcher-aarch64-unknown-linux-musl
+          path: ./release-artifacts/
+
+      - name: List artifacts
+        run: |
+          echo "Artifacts ready for release:"
+          ls -lh ./release-artifacts/
+
+      - name: Install semantic-release
+        run: npm install -g semantic-release @semantic-release/changelog @semantic-release/commit-analyzer @semantic-release/git @semantic-release/github @semantic-release/release-notes-generator
+
+      - name: Release with Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: semantic-release
