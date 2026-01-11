@@ -4,7 +4,6 @@ use std::env;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use tracing::{error, info, warn};
 
 pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
     iced::stream::channel(
@@ -30,8 +29,6 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
                 return;
             };
 
-            info!("Starting system update using: {} {:?}", program, args);
-
             let mut cmd = if use_pkexec {
                 let mut c = Command::new("pkexec");
                 c.arg(program).args(&args);
@@ -55,7 +52,6 @@ pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
                 }
                 Err(e) => {
                     let msg = format!("Failed to spawn update process: {}", e);
-                    error!("{}", msg);
                     send_failed(&mut output, msg).await;
                 }
             }
@@ -104,7 +100,6 @@ async fn monitor_child(
                         process_output_buffer(&mut stdout_buf, output, updated_packages).await;
                     }
                     Err(e) => {
-                        error!("Error reading stdout: {}", e);
                         send_failed(output, format!("Error reading stdout: {}", e)).await;
                         return;
                     }
@@ -121,7 +116,6 @@ async fn monitor_child(
                         process_output_buffer(&mut stderr_buf, output, updated_packages).await;
                     }
                     Err(e) => {
-                        error!("Error reading stderr: {}", e);
                         send_failed(output, format!("Error reading stderr: {}", e)).await;
                         return;
                     }
@@ -241,7 +235,6 @@ async fn parse_output_line(
     updated_packages: &mut Vec<String>,
 ) {
     // Log output to application logger
-    info!("{}", line);
 
     let lower = line.to_lowercase();
     let _ = sender
@@ -404,7 +397,6 @@ fn get_update_command() -> Option<(&'static str, Vec<&'static str>, bool)> {
     } else if command_exists("pacman") {
         Some(("pacman", vec!["-Syu", "--noconfirm"], true)) // Needs pkexec wrapper
     } else {
-        warn!("No supported package manager found.");
         None
     }
 }

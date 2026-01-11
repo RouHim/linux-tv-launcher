@@ -1,5 +1,4 @@
 use self_update::cargo_crate_version;
-use tracing::info;
 
 /// Checks for updates and returns whether an update was applied
 pub fn check_for_updates() -> Result<bool, String> {
@@ -20,13 +19,7 @@ pub fn check_for_updates() -> Result<bool, String> {
         .map_err(|e| format!("Update check failed: {}", e))?;
 
     match status {
-        self_update::Status::UpToDate(version) => {
-            info!("App {version} is up to date");
-            Ok(false)
-        }
-        self_update::Status::Updated(version) => {
-            info!("App updated to {version}");
-            Ok(true)
-        }
+        self_update::Status::UpToDate(_version) => Ok(false),
+        self_update::Status::Updated(_version) => Ok(true),
     }
 }

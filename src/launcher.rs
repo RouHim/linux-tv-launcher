@@ -1,7 +1,6 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 use thiserror::Error;
-use tracing::{error, info};
 use urlencoding::decode;
 
 use crate::focus_manager::MonitorTarget;
@@ -24,8 +23,6 @@ pub enum LaunchError {
 }
 
 pub fn launch_app(exec: &str) -> Result<u32, LaunchError> {
-    info!("Launching: {}", exec);
-
     // Split the exec string into command and args
     // Be careful with quotes, but for now simple split
     let parts: Vec<&str> = exec.split_whitespace().collect();
@@ -45,16 +42,12 @@ pub fn launch_app(exec: &str) -> Result<u32, LaunchError> {
     {
         Ok(child) => {
             let pid = child.id();
-            info!("Successfully launched {} (PID: {})", cmd, pid);
             Ok(pid)
         }
-        Err(e) => {
-            error!("Failed to launch {}: {}", cmd, e);
-            Err(LaunchError::LaunchFailed {
-                command: cmd.to_string(),
-                source: e,
-            })
-        }
+        Err(e) => Err(LaunchError::LaunchFailed {
+            command: cmd.to_string(),
+            source: e,
+        }),
     }
 }
 
@@ -95,8 +88,6 @@ pub fn resolve_monitor_target(
         }
 
         if let Some(name) = app_name {
-            info!("Detected Heroic launch for app: {}", name);
-
             let mut targets = vec![
                 MonitorTarget::EnvVarEq("LEGENDARY_GAME_ID".to_string(), name.clone()),
                 MonitorTarget::EnvVarEq("HeroicAppName".to_string(), name.clone()),
@@ -105,7 +96,6 @@ pub fn resolve_monitor_target(
 
             // Add exact executable match if available
             if let Some(exe) = game_executable {
-                info!("Monitoring executable for {}: {}", name, exe);
                 targets.push(MonitorTarget::CmdLineContains(exe.clone()));
             }
 
@@ -147,10 +137,6 @@ fn extract_executable_name(exec: &str) -> Option<String> {
 /// Combines executable name and item name patterns for robust process detection.
 fn create_app_monitor_target(exec: &str, item_name: &str) -> MonitorTarget {
     let exe_name = extract_executable_name(exec);
-
-    if let Some(ref name) = exe_name {
-        info!("Monitoring application by executable: {}", name);
-    }
 
     // Check if exe_name and item_name are equivalent (case-insensitive)
     let names_match = exe_name

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{debug, warn};
 
 /// Represents a parsed XDG .desktop application
 #[derive(Debug, Clone)]
@@ -44,15 +43,13 @@ pub fn scan_desktop_apps() -> Vec<DesktopApp> {
     // Deduplicate by name (keep first occurrence, which is user-level)
     apps.dedup_by(|a, b| a.name == b.name);
 
-    debug!("Found {} desktop applications", apps.len());
     apps
 }
 
 fn scan_directory(dir: &Path, apps: &mut Vec<DesktopApp>) {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
-        Err(err) => {
-            warn!("Failed to read directory {:?}: {}", dir, err);
+        Err(_err) => {
             return;
         }
     };

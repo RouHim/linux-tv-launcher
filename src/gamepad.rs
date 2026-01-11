@@ -10,8 +10,7 @@ pub fn gamepad_subscription() -> Subscription<Action> {
             |mut output: iced::futures::channel::mpsc::Sender<Action>| async move {
                 let mut gilrs = match Gilrs::new() {
                     Ok(g) => g,
-                    Err(e) => {
-                        tracing::error!("Failed to initialize Gilrs: {}", e);
+                    Err(_e) => {
                         return;
                     }
                 };

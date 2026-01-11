@@ -5,12 +5,9 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{debug, warn};
 
 /// Scan all game sources (Steam, Heroic) in parallel and return unique entries
 pub fn scan_games() -> Vec<AppEntry> {
-    let _scan_span = tracing::info_span!("startup_scan_games").entered();
-
     // Scan Steam and Heroic games concurrently
     let (steam_games, heroic_games) = rayon::join(scan_steam_games, scan_heroic_games);
 
@@ -23,7 +20,6 @@ pub fn scan_games() -> Vec<AppEntry> {
     games.sort_by(|a, b| a.name.cmp(&b.name).then(a.exec.cmp(&b.exec)));
     games.dedup_by(|a, b| a.name == b.name && a.exec == b.exec);
 
-    drop(_scan_span);
     games
 }
 
@@ -91,10 +87,7 @@ fn scan_steam_games() -> Vec<AppEntry> {
 fn parse_steam_manifest_file(path: &Path) -> Option<AppEntry> {
     let appid_from_name = appid_from_manifest_path(path);
     let contents = fs::read_to_string(path).ok()?;
-    let mut manifest = parse_steam_manifest(&contents).or_else(|| {
-        warn!("Failed to parse manifest: {:?}", path);
-        None
-    })?;
+    let mut manifest = parse_steam_manifest(&contents).or(None)?;
 
     if manifest.appid.is_empty() {
         if let Some(appid) = appid_from_name {
@@ -217,13 +210,7 @@ fn read_file_if_exists(path: &Path) -> Option<String> {
     if !path.exists() {
         return None;
     }
-    match fs::read_to_string(path) {
-        Ok(contents) => Some(contents),
-        Err(err) => {
-            warn!("Failed to read Heroic file {}: {}", path.display(), err);
-            None
-        }
-    }
+    fs::read_to_string(path).ok()
 }
 
 fn heroic_exec(store: &str, app_name: &str) -> String {
@@ -264,8 +251,7 @@ struct HeroicGame {
 fn parse_heroic_library_json(contents: &str, store_hint: &str) -> Vec<HeroicGame> {
     let value: Value = match serde_json::from_str(contents) {
         Ok(value) => value,
-        Err(err) => {
-            debug!("Failed to parse Heroic JSON: {}", err);
+        Err(_err) => {
             return Vec::new();
         }
     };

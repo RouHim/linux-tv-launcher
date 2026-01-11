@@ -9,7 +9,6 @@ use iced::{
     widget::{Column, Container, Stack},
     Color, Element, Event, Length, Subscription, Task,
 };
-use tracing::{info, warn};
 
 use chrono::{DateTime, Local};
 use rayon::prelude::*;
@@ -85,8 +84,6 @@ pub struct Launcher {
 
 impl Launcher {
     pub fn new() -> (Self, Task<Message>) {
-        let _init_span = tracing::info_span!("startup_launcher_init").entered();
-
         let default_icon = get_default_icon().map(iced::widget::svg::Handle::from_memory);
         let config_path = config_path().ok().map(|path| path.display().to_string());
 
@@ -140,8 +137,6 @@ impl Launcher {
             Message::AppsLoaded,
         );
 
-        drop(_init_span);
-
         (launcher, tasks)
     }
 
@@ -183,14 +178,12 @@ impl Launcher {
                         // If no env key was found, try using the one from config
                         if self.api_key.is_none() {
                             if let Some(key) = config.steamgriddb_api_key {
-                                info!("Using SteamGridDB API key from config");
                                 self.api_key = Some(key.clone());
                                 self.sgdb_client = SteamGridDbClient::new(key);
                             }
                         }
                     }
                     Err(err) => {
-                        warn!("Failed to load app config: {}", err);
                         self.apps.clear();
                         self.status_message = Some(err);
                     }
@@ -421,7 +414,6 @@ impl Launcher {
             }
             Message::GameExited => {
                 self.game_running = false;
-                info!("Game/App process exited. Recreating window to regain focus.");
                 if let Some(old_id) = self.window_id {
                     let settings = window::Settings {
                         decorations: false,
@@ -441,7 +433,6 @@ impl Launcher {
                 }
             }
             Message::WindowOpened(id) => {
-                info!("Main window opened with ID: {:?}", id);
                 self.window_id = Some(id);
                 // Defer update check until window is ready
                 Task::perform(
@@ -456,7 +447,6 @@ impl Launcher {
             }
             Message::WindowFocused(id) => {
                 if self.window_id.is_none() {
-                    info!("Captured window ID from Focus event: {:?}", id);
                     self.window_id = Some(id);
                 }
                 Task::none()
@@ -473,13 +463,11 @@ impl Launcher {
                         )
                     } else {
                         // Silent update check when no updates found
-                        info!("App is up to date");
                         Task::none()
                     }
                 }
-                Err(e) => {
+                Err(_e) => {
                     // Log error but don't show user facing message for background check failure
-                    warn!("Auto-update check failed: {}", e);
                     Task::none()
                 }
             },
@@ -1085,7 +1073,7 @@ impl Launcher {
             .into()
     }
 
-    fn save_apps_config(&self, success_action: &str, failure_action: &str, app_name: &str) {
+    fn save_apps_config(&self, _success_action: &str, failure_action: &str, app_name: &str) {
         let apps_to_save: Vec<AppEntry> = self
             .apps
             .items
@@ -1107,12 +1095,11 @@ impl Launcher {
             steamgriddb_api_key: self.api_key.clone(),
         };
 
-        match save_config(&config) {
-            Ok(_) => info!("{} app: {}", success_action, app_name),
-            Err(err) => warn!(
+        if let Err(err) = save_config(&config) {
+            eprintln!(
                 "Failed to save config after {} app {}: {}",
                 failure_action, app_name, err
-            ),
+            );
         }
     }
 

@@ -29,21 +29,15 @@ pub fn config_path() -> Result<PathBuf> {
 
 /// Load application configuration from disk
 pub fn load_config() -> Result<AppConfig> {
-    let _load_span = tracing::info_span!("startup_load_config").entered();
-
     let path = config_path()?;
     if !path.exists() {
-        tracing::debug!("Config file does not exist, returning empty config");
         return Ok(AppConfig::default());
     }
 
-    tracing::debug!(?path, "Loading config file");
     let content = fs::read_to_string(&path).context("Failed to read config file")?;
 
     // Try parsing as new config structure
     if let Ok(config) = serde_json::from_str::<AppConfig>(&content) {
-        tracing::debug!("Loaded {} apps from config (v2)", config.apps.len());
-        drop(_load_span);
         return Ok(config);
     }
 
@@ -51,8 +45,6 @@ pub fn load_config() -> Result<AppConfig> {
     let apps: Vec<AppEntry> = serde_json::from_str(&content)
         .context("Failed to parse config file (tried both v2 and legacy format)")?;
 
-    tracing::debug!("Loaded {} apps from legacy config", apps.len());
-    drop(_load_span);
     Ok(AppConfig {
         apps,
         steamgriddb_api_key: None,

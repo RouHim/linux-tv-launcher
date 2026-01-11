@@ -5,7 +5,6 @@
 
 use std::env;
 use std::process::Command;
-use tracing::{debug, info, warn};
 
 /// Manager for the On-Screen Keyboard.
 ///
@@ -30,11 +29,8 @@ impl OskManager {
     /// Show the on-screen keyboard.
     pub fn show(&mut self) {
         let Some(backend) = &self.backend else {
-            warn!("Cannot show OSK: no backend detected");
             return;
         };
-
-        info!("Showing on-screen keyboard ({})", backend.name());
 
         // Check if we need to track state (currently primarily for GNOME)
         // If the OSK is currently disabled, mark that we are enabling it.
@@ -44,9 +40,7 @@ impl OskManager {
             }
         }
 
-        if let Err(e) = backend.show() {
-            warn!("Failed to show OSK: {}", e);
-        }
+        if let Err(_e) = backend.show() {}
     }
 
     /// Hide the on-screen keyboard.
@@ -55,10 +49,7 @@ impl OskManager {
             return;
         };
 
-        info!("Hiding on-screen keyboard ({})", backend.name());
-        if let Err(e) = backend.hide() {
-            warn!("Failed to hide OSK: {}", e);
-        }
+        if let Err(_e) = backend.hide() {}
     }
 
     /// Restore the OSK state if it was modified by the application.
@@ -66,11 +57,8 @@ impl OskManager {
     /// This should be called on application exit.
     pub fn restore(&mut self) {
         if self.enabled_by_app {
-            info!("Restoring OSK state (disabling on exit)");
             if let Some(backend) = &self.backend {
-                if let Err(e) = backend.hide() {
-                    warn!("Failed to restore OSK state: {}", e);
-                }
+                if let Err(_e) = backend.hide() {}
             }
             self.enabled_by_app = false;
         }
@@ -84,6 +72,9 @@ impl OskManager {
 
 /// Trait representing an On-Screen Keyboard backend.
 trait OskBackend: Send + Sync {
+    /// Returns the name of this backend (used for debugging/logging).
+    /// Currently unused but kept for future extensibility.
+    #[allow(dead_code)]
     fn name(&self) -> &'static str;
     fn show(&self) -> Result<(), String>;
     fn hide(&self) -> Result<(), String>;
@@ -95,29 +86,24 @@ trait OskBackend: Send + Sync {
 fn detect_backend() -> Option<Box<dyn OskBackend>> {
     // 1. wvkbd
     if WvkbdBackend::is_available() {
-        debug!("Detected wvkbd OSK backend");
         return Some(Box::new(WvkbdBackend));
     }
 
     // 2. GNOME Shell
     if GnomeBackend::is_available() {
-        debug!("Detected GNOME Shell OSK backend");
         return Some(Box::new(GnomeBackend));
     }
 
     // 3. Squeekboard
     if SqueekboardBackend::is_available() {
-        debug!("Detected squeekboard OSK backend");
         return Some(Box::new(SqueekboardBackend));
     }
 
     // 4. KDE Plasma
     if KdeBackend::is_available() {
-        debug!("Detected KDE Plasma Virtual Keyboard backend");
         return Some(Box::new(KdeBackend));
     }
 
-    debug!("No on-screen keyboard backend detected");
     None
 }
 

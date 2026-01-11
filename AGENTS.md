@@ -62,6 +62,8 @@ This is a Rust application built with Iced for the UI. Key paths:
 - Always run code formatters (`cargo fmt`) and linters (`cargo clippy`) when finishing a task.
 - Maintain consistent code style across the project to improve readability and reduce friction in reviews.
 - Always use RustTLS for any TLS connections, no OpenSSL.
+- Use conventional commit messages like "feat: add new feature", "fix: correct a bug", "docs: update documentation", etc.
+- Challenge every dead_code warning and remove unused code. If an dead_code is ok, add a comment explaining why.
 
 ## Testing Strategy
 

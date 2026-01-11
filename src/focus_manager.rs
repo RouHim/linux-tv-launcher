@@ -1,7 +1,6 @@
 use procfs::process::Process;
 use std::ffi::OsStr;
 use std::time::{Duration, Instant};
-use tracing::{debug, info, warn};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const STEAM_LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
@@ -17,8 +16,6 @@ pub enum MonitorTarget {
 }
 
 pub async fn monitor_app_process(target: MonitorTarget) {
-    info!("Starting process monitor for {:?}", target);
-
     let start_time = Instant::now();
     let mut game_found_once = false;
     let mut last_seen_time = Instant::now();
@@ -28,7 +25,6 @@ pub async fn monitor_app_process(target: MonitorTarget) {
 
         if is_running {
             if !game_found_once {
-                info!("Target detected running: {:?}", target);
                 game_found_once = true;
             }
             last_seen_time = Instant::now();
@@ -37,25 +33,19 @@ pub async fn monitor_app_process(target: MonitorTarget) {
             if !game_found_once {
                 // We haven't seen it start yet. Check timeout.
                 if start_time.elapsed() > STEAM_LAUNCH_TIMEOUT {
-                    warn!("Timed out waiting for target to start: {:?}", target);
                     break;
                 }
             } else {
                 // We saw it running before, but now it's gone.
                 // Check grace period
                 if last_seen_time.elapsed() > GAME_EXIT_GRACE_PERIOD {
-                    info!("Target exited (grace period expired): {:?}", target);
                     break;
-                } else {
-                    debug!("Target disappeared, waiting grace period... {:?}", target);
                 }
             }
         }
 
         tokio::time::sleep(POLL_INTERVAL).await;
     }
-
-    info!("Monitor task complete for {:?}", target);
 }
 
 fn check_target_running(target: &MonitorTarget) -> bool {
@@ -75,8 +65,7 @@ fn is_process_running(pid: u32) -> bool {
 fn check_cmdline(pattern: &str) -> bool {
     let all_procs = match procfs::process::all_processes() {
         Ok(p) => p,
-        Err(e) => {
-            warn!("Failed to read processes: {}", e);
+        Err(_e) => {
             return false;
         }
     };
@@ -104,8 +93,7 @@ fn check_cmdline(pattern: &str) -> bool {
 fn check_env_var(target_key_str: &str, target_val_str: &str) -> bool {
     let all_procs = match procfs::process::all_processes() {
         Ok(p) => p,
-        Err(e) => {
-            warn!("Failed to read processes: {}", e);
+        Err(_e) => {
             return false;
         }
     };
