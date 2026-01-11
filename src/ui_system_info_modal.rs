@@ -86,6 +86,66 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
         }
         column = column.push(Container::new(proton_col).padding(20)); // Indent
 
+        // Storage section
+        column = column.push(
+            Text::new("Storage")
+                .font(SANSATION)
+                .size(18)
+                .color(COLOR_TEXT_SOFT),
+        );
+
+        let mut storage_col = Column::new().spacing(5).padding(10);
+        if info.disks.is_empty() {
+            storage_col = storage_col.push(
+                Text::new("No disks found")
+                    .font(SANSATION)
+                    .size(16)
+                    .color(COLOR_TEXT_DIM),
+            );
+        } else {
+            for disk in &info.disks {
+                storage_col = storage_col.push(
+                    Text::new(format!(
+                        "{}: {} / {} ({})",
+                        disk.mount_point, disk.used, disk.size, disk.usage_percent
+                    ))
+                    .font(SANSATION)
+                    .size(16)
+                    .color(COLOR_TEXT_BRIGHT),
+                );
+            }
+        }
+        column = column.push(Container::new(storage_col).padding(20));
+
+        // ZRAM section
+        column = column.push(
+            Text::new("ZRAM")
+                .font(SANSATION)
+                .size(18)
+                .color(COLOR_TEXT_SOFT),
+        );
+
+        let zram_text = if info.zram.enabled {
+            format!(
+                "Enabled - {} ({}) - {} used ({})",
+                info.zram.size, info.zram.algorithm, info.zram.used, info.zram.usage_percent
+            )
+        } else {
+            "Not Configured".to_string()
+        };
+
+        let zram_col = Column::new().spacing(5).padding(10).push(
+            Text::new(zram_text)
+                .font(SANSATION)
+                .size(16)
+                .color(if info.zram.enabled {
+                    COLOR_TEXT_BRIGHT
+                } else {
+                    COLOR_TEXT_DIM
+                }),
+        );
+        column = column.push(Container::new(zram_col).padding(20));
+
         Scrollable::new(column)
             .width(Length::Fill)
             .height(Length::Fill)

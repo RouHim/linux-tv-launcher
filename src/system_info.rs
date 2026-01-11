@@ -4,6 +4,23 @@ use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Debug, Clone, Default)]
+pub struct DiskInfo {
+    pub mount_point: String,
+    pub size: String,
+    pub used: String,
+    pub usage_percent: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ZramInfo {
+    pub enabled: bool,
+    pub size: String,
+    pub algorithm: String,
+    pub used: String,
+    pub usage_percent: String,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct GamingSystemInfo {
     pub os_name: String,
     pub kernel_version: String,
@@ -16,6 +33,8 @@ pub struct GamingSystemInfo {
     pub xdg_session_type: String,
     pub wine_versions: Vec<(String, String)>,
     pub proton_versions: Vec<(String, String)>,
+    pub disks: Vec<DiskInfo>,
+    pub zram: ZramInfo,
 }
 
 pub fn fetch_system_info() -> GamingSystemInfo {
@@ -28,6 +47,8 @@ pub fn fetch_system_info() -> GamingSystemInfo {
     let xdg_session_type = env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "Unknown".to_string());
     let wine_versions = get_wine_versions();
     let proton_versions = get_proton_versions();
+    let disks = get_disk_info();
+    let zram = get_zram_info();
 
     GamingSystemInfo {
         os_name,
@@ -41,6 +62,8 @@ pub fn fetch_system_info() -> GamingSystemInfo {
         xdg_session_type,
         wine_versions,
         proton_versions,
+        disks,
+        zram,
     }
 }
 
@@ -265,4 +288,125 @@ fn get_proton_versions() -> Vec<(String, String)> {
     versions.sort_by(|a, b| a.0.cmp(&b.0));
     versions.dedup_by(|a, b| a.0 == b.0);
     versions
+}
+
+fn get_disk_info() -> Vec<DiskInfo> {
+    let mut disks = Vec::new();
+
+    // Use df to get disk usage, excluding virtual filesystems
+    if let Ok(output) = Command::new("df")
+        .args([
+            "-h",
+            "--output=target,size,used,pcent",
+            "-x",
+            "tmpfs",
+            "-x",
+            "devtmpfs",
+            "-x",
+            "squashfs",
+            "-x",
+            "overlay",
+            "-x",
+            "efivarfs",
+        ])
+        .output()
+    {
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        for line in output_str.lines().skip(1) {
+            // Skip header
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let mount_point = parts[0].to_string();
+                // Skip some system mounts that aren't useful for gaming
+                if mount_point.starts_with("/snap")
+                    || mount_point.starts_with("/boot")
+                    || mount_point == "/efi"
+                {
+                    continue;
+                }
+                disks.push(DiskInfo {
+                    mount_point,
+                    size: parts[1].to_string(),
+                    used: parts[2].to_string(),
+                    usage_percent: parts[3].to_string(),
+                });
+            }
+        }
+    }
+
+    disks
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const GB: u64 = 1024 * 1024 * 1024;
+    const MB: u64 = 1024 * 1024;
+
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    }
+}
+
+fn get_zram_info() -> ZramInfo {
+    // Check if any zram device exists
+    let zram_path = PathBuf::from("/sys/block/zram0");
+    if !zram_path.exists() {
+        return ZramInfo::default();
+    }
+
+    // Read disksize
+    let disksize = fs::read_to_string(zram_path.join("disksize"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+
+    if disksize == 0 {
+        return ZramInfo::default();
+    }
+
+    // Read compression algorithm (format: "lzo-rle lzo lz4 [zstd] deflate" - active one in brackets)
+    let algorithm = fs::read_to_string(zram_path.join("comp_algorithm"))
+        .ok()
+        .and_then(|s| {
+            // Find the algorithm in brackets [algo]
+            if let Some(start) = s.find('[') {
+                if let Some(end) = s.find(']') {
+                    return Some(s[start + 1..end].to_string());
+                }
+            }
+            // Fallback: just return the first algorithm
+            s.split_whitespace().next().map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    // Check if zram is active in swap and get usage from /proc/swaps
+    let mut used_kb: u64 = 0;
+    let mut total_kb: u64 = 0;
+    if let Ok(swaps) = fs::read_to_string("/proc/swaps") {
+        for line in swaps.lines() {
+            if line.contains("/dev/zram") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    total_kb = parts[2].parse().unwrap_or(0);
+                    used_kb = parts[3].parse().unwrap_or(0);
+                    break;
+                }
+            }
+        }
+    }
+
+    let usage_percent = if total_kb > 0 {
+        format!("{}%", (used_kb * 100) / total_kb)
+    } else {
+        "0%".to_string()
+    };
+
+    ZramInfo {
+        enabled: true,
+        size: format_bytes(disksize),
+        algorithm,
+        used: format_bytes(used_kb * 1024),
+        usage_percent,
+    }
 }

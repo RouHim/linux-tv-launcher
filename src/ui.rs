@@ -49,7 +49,7 @@ enum ModalState {
     ContextMenu { index: usize },
     AppPicker(AppPickerState),
     SystemUpdate(SystemUpdateState),
-    SystemInfo(Option<GamingSystemInfo>),
+    SystemInfo(Box<Option<GamingSystemInfo>>),
     Help,
 }
 
@@ -397,7 +397,7 @@ impl Launcher {
                 Task::none()
             }
             Message::OpenSystemInfo => {
-                self.modal = ModalState::SystemInfo(None);
+                self.modal = ModalState::SystemInfo(Box::new(None));
                 Task::perform(
                     async { tokio::task::spawn_blocking(fetch_system_info).await.ok() },
                     |info| {
@@ -411,7 +411,7 @@ impl Launcher {
             }
             Message::SystemInfoLoaded(info_box) => {
                 if let ModalState::SystemInfo(state) = &mut self.modal {
-                    *state = Some(*info_box);
+                    **state = Some(*info_box);
                 }
                 Task::none()
             }
