@@ -105,7 +105,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config
+          sudo apt-get install -y libudev-dev pkg-config
 
       - name: Build aarch64-unknown-linux-musl release (native)
         env:
