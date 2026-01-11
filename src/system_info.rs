@@ -108,15 +108,20 @@ fn get_gpu_info() -> (String, String) {
         .unwrap_or_default();
 
     for line in lspci.lines() {
-        // Look for VGA or 3D controller classes
-        // lspci -mm output format is roughly:
-        // 00:02.0 "VGA compatible controller" "Intel Corporation" "UHD Graphics 620" ...
-        if line.contains("\"VGA") || line.contains("\"3D") {
+        // Look for VGA, 3D, or Display controller classes
+        // lspci -mm output format:
+        // 00:02.0 "VGA compatible controller" "Intel Corporation" "HD Graphics 530" ...
+        // 01:00.0 "Display controller" "Advanced Micro Devices, Inc. [AMD/ATI]" ...
+        if line.contains("\"VGA") || line.contains("\"3D") || line.contains("\"Display") {
             // Split by quotes to get fields
-            // parts[0] is slot (no quotes), parts[1] is empty (between slot and quote),
-            // parts[2] is Class, parts[4] is Vendor, parts[6] is Device
+            // parts[0] = "Slot "
+            // parts[1] = "Class"
+            // parts[2] = " "
+            // parts[3] = "Vendor"
+            // parts[4] = " "
+            // parts[5] = "Device"
             let parts: Vec<&str> = line.split('"').collect();
-            if parts.len() >= 7 {
+            if parts.len() >= 6 {
                 let vendor = parts[3];
                 let model = parts[5];
                 gpus.push(format!("{} {}", vendor, model));
