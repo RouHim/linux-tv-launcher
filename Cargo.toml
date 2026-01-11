@@ -17,7 +17,7 @@ anyhow = "1.0"
 thiserror = "2.0"
 uuid = { version = "1.19", features = ["v4", "serde"] }
 rayon = "1.11.0"
-ureq = { version = "2.12", features = ["json", "tls"] }
+ureq = { version = "3.0", features = ["json", "tls"] }
 urlencoding = "2.1"
 image = { version = "0.25", features = ["png", "jpeg"] }
 procfs = "0.18"
