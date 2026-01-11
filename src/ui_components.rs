@@ -1,8 +1,9 @@
+use chrono::{DateTime, Local};
 use iced::widget::{Container, Image, Svg, Text};
 use iced::{Color, ContentFit, Element, Length};
 use std::path::{Path, PathBuf};
 
-use crate::ui_theme::SANSATION;
+use crate::ui_theme::{COLOR_TEXT_BRIGHT, SANSATION};
 
 fn is_svg(path: &Path) -> bool {
     path.extension()
@@ -53,4 +54,20 @@ where
         .center_x(Length::Fill)
         .center_y(Length::Fill)
         .into()
+}
+
+pub fn render_clock<'a, Message>(time: &DateTime<Local>) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    Container::new(
+        Text::new(time.format("%H:%M").to_string())
+            .font(SANSATION)
+            .size(32)
+            .color(COLOR_TEXT_BRIGHT),
+    )
+    .padding(30)
+    .width(Length::Fill)
+    .align_x(iced::alignment::Horizontal::Right)
+    .into()
 }

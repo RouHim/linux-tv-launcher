@@ -1,3 +1,4 @@
+use chrono::{DateTime, Local};
 use iced::window;
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -33,5 +34,6 @@ pub enum Message {
     WindowFocused(window::Id),
     AppUpdateResult(Result<bool, String>),
     RestartApp,
+    Tick(DateTime<Local>),
     None,
 }

@@ -11,6 +11,7 @@ use iced::{
 };
 use tracing::{info, warn};
 
+use chrono::{DateTime, Local};
 use rayon::prelude::*;
 use std::env;
 use std::path::PathBuf;
@@ -36,6 +37,7 @@ use crate::sys_utils::restart_process;
 use crate::system_update::system_update_stream;
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
+use crate::ui_components::render_clock;
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
 };
@@ -75,6 +77,7 @@ pub struct Launcher {
     osk_manager: OskManager,
     current_exe: Option<PathBuf>,
     api_key: Option<String>,
+    current_time: DateTime<Local>,
 }
 
 impl Launcher {
@@ -124,6 +127,7 @@ impl Launcher {
             osk_manager: OskManager::new(),
             current_exe,
             api_key: env_key,
+            current_time: Local::now(),
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
@@ -262,6 +266,10 @@ impl Launcher {
             Message::Input(action) => self.handle_navigation(action),
             Message::ScaleFactorChanged(scale) => {
                 self.scale_factor = scale;
+                Task::none()
+            }
+            Message::Tick(time) => {
+                self.current_time = time;
                 Task::none()
             }
             Message::WindowResized(width, _height) => {
@@ -503,10 +511,13 @@ impl Launcher {
                 background: Some(COLOR_BACKGROUND.into()),
                 text_color: Some(Color::WHITE),
                 ..Default::default()
-            })
-            .into();
+            });
 
-        self.render_with_modal(main_content)
+        let clock = render_clock(&self.current_time);
+
+        let stack = Stack::new().push(main_content).push(clock).into();
+
+        self.render_with_modal(stack)
     }
 
     fn render_with_modal<'a>(&'a self, main_content: Element<'a, Message>) -> Element<'a, Message> {
@@ -576,6 +587,10 @@ impl Launcher {
         });
 
         let mut subscriptions = vec![gamepad, keyboard, window_events];
+
+        // Clock subscription (every 1 second)
+        subscriptions
+            .push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick(Local::now())));
 
         // System update subscriptions (stream + spinner)
         if let ModalState::SystemUpdate(state) = &self.modal {

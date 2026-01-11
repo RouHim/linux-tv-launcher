@@ -23,6 +23,7 @@ image = { version = "0.25", features = ["png", "jpeg"] }
 procfs = "0.18"
  iced_fonts = { version = "0.3", features = ["fontawesome"] }
 self_update = { version = "0.42.0", features = ["rustls"], default-features = false }
+chrono = "0.4.42"
 
 [profile.release]
 lto = true
