@@ -1,18 +1,22 @@
 use iced::alignment::Horizontal;
 use iced::keyboard::{self, key::Named, Key};
 use iced::widget::operation;
+use iced::widget::scrollable;
+
 use iced::window;
 use iced::{
-    widget::{Column, Container, Grid, Row, Scrollable, Stack, Text},
+    widget::{Column, Container, Row, Scrollable, Stack, Text},
     Color, Element, Event, Length, Subscription, Task,
 };
 use rayon::prelude::*;
 use std::path::PathBuf;
+
 use std::time::Duration;
 use std::{env, io, process, thread};
 use uuid::Uuid;
 
 use crate::assets::get_default_icon;
+use crate::category_list::CategoryList;
 use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
 use crate::focus_manager::{monitor_app_process, MonitorTarget};
 use crate::game_image_fetcher::GameImageFetcher;
@@ -30,7 +34,7 @@ use crate::storage::{config_path, load_config, save_config};
 use crate::system_update::system_update_stream;
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
-use crate::ui_components::{render_icon, IconPath};
+use crate::ui_components::render_icon;
 use crate::ui_modals::{render_context_menu, render_help_modal};
 use crate::ui_system_update_modal::render_system_update_modal;
 use crate::ui_theme::*;
@@ -45,14 +49,14 @@ enum ModalState {
 }
 
 pub struct Launcher {
-    apps: Vec<LauncherItem>,
-    games: Vec<LauncherItem>,
-    system_items: Vec<LauncherItem>,
-    selected_index: usize,
+    apps: CategoryList,
+    games: CategoryList,
+    system_items: CategoryList,
+
     category: Category,
-    cols: usize,
     default_icon_handle: Option<iced::widget::svg::Handle>,
     status_message: Option<String>,
+
     config_path: Option<String>,
     apps_loaded: bool,
     games_loaded: bool,
@@ -110,20 +114,19 @@ impl Launcher {
         let image_cache = ImageCache::new().ok();
         let current_exe = env::current_exe().ok();
 
-        let mut launcher = Self {
-            apps: Vec::new(),
-            games: Vec::new(),
-            system_items: vec![
+        let launcher = Self {
+            apps: CategoryList::new(Vec::new()),
+            games: CategoryList::new(Vec::new()),
+            system_items: CategoryList::new(vec![
                 LauncherItem::shutdown(),
                 LauncherItem::suspend(),
                 LauncherItem::system_update(),
                 LauncherItem::exit(),
-            ],
-            selected_index: 0,
+            ]),
             category: Category::Apps,
-            cols: 6,
             default_icon_handle: default_icon,
             status_message: None,
+
             config_path,
             apps_loaded: false,
             games_loaded: false,
@@ -139,7 +142,6 @@ impl Launcher {
             osk_manager: OskManager::new(),
             current_exe,
         };
-        launcher.update_columns();
 
         (
             launcher,
@@ -167,35 +169,51 @@ impl Launcher {
         String::from("Linux TV Launcher")
     }
 
+    fn current_category_list(&self) -> &CategoryList {
+        match self.category {
+            Category::Apps => &self.apps,
+            Category::Games => &self.games,
+            Category::System => &self.system_items,
+        }
+    }
+
+    fn current_category_list_mut(&mut self) -> &mut CategoryList {
+        match self.category {
+            Category::Apps => &mut self.apps,
+            Category::Games => &mut self.games,
+            Category::System => &mut self.system_items,
+        }
+    }
+
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::AppsLoaded(result) => {
                 self.apps_loaded = true;
                 match result {
                     Ok(apps) => {
-                        self.apps = apps.into_iter().map(LauncherItem::from_app_entry).collect();
+                        let items: Vec<LauncherItem> =
+                            apps.into_iter().map(LauncherItem::from_app_entry).collect();
+                        self.apps.set_items(items);
+                        self.apps.sort_inplace();
                         self.status_message = None;
-                        Self::sort_items(&mut self.apps);
-                        self.clamp_selected_index();
                     }
                     Err(err) => {
                         warn!("Failed to load app config: {}", err);
                         self.apps.clear();
                         self.status_message = Some(err);
-                        self.clamp_selected_index();
                     }
                 }
                 Task::none()
             }
             Message::GamesLoaded(games) => {
-                self.games = games
+                let items: Vec<LauncherItem> = games
                     .into_iter()
                     .map(LauncherItem::from_app_entry)
                     .collect();
+                self.games.set_items(items);
+                self.games.sort_inplace();
                 self.games_loaded = true;
                 self.status_message = None;
-                Self::sort_items(&mut self.games);
-                self.clamp_selected_index();
 
                 // Spawn tasks to fetch images
                 let mut tasks = Vec::new();
@@ -212,6 +230,7 @@ impl Launcher {
 
                     tasks = self
                         .games
+                        .items
                         .par_iter()
                         .map(|game| {
                             let game_id = game.id;
@@ -242,9 +261,9 @@ impl Launcher {
                 Task::batch(tasks)
             }
             Message::ImageFetched(id, path) => {
-                if let Some(item) = self.games.iter_mut().find(|g| g.id == id) {
+                self.games.update_item_by_id(id, |item| {
                     item.icon = Some(path.to_string_lossy().to_string());
-                }
+                });
                 Task::none()
             }
             Message::Input(action) => self.handle_navigation(action),
@@ -254,9 +273,9 @@ impl Launcher {
             }
             Message::WindowResized(width, _height) => {
                 self.window_width = width;
-                self.update_columns();
                 Task::none()
             }
+
             Message::OpenAppPicker => {
                 self.modal = ModalState::AppPicker(AppPickerState::new());
                 self.available_apps.clear();
@@ -267,6 +286,7 @@ impl Launcher {
                 // Filter out apps already added (by exec command)
                 let existing_execs: std::collections::HashSet<_> = self
                     .apps
+                    .items
                     .iter()
                     .filter_map(|item| match &item.action {
                         LauncherAction::Launch { exec } => Some(exec.clone()),
@@ -302,9 +322,8 @@ impl Launcher {
                     );
 
                     let new_item = LauncherItem::from_app_entry(new_entry);
-                    self.apps.push(new_item);
-                    Self::sort_items(&mut self.apps);
-                    self.clamp_selected_index();
+
+                    self.apps.add_item(new_item);
 
                     self.save_apps_config("Added", "adding", &selected_app.name);
 
@@ -461,10 +480,9 @@ impl Launcher {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let header = self.render_header();
         let content = self.render_category();
 
-        let mut column = Column::new().push(header).push(content).spacing(20);
+        let mut column = Column::new().push(content).spacing(20);
         if let Some(status) = self.render_status() {
             column = column.push(status);
         }
@@ -609,17 +627,9 @@ impl Launcher {
                 return Task::none();
             }
             Action::ContextMenu => {
-                if !self.active_items().is_empty() {
+                if !self.current_category_list().is_empty() {
                     self.modal = ModalState::ContextMenu { index: 0 };
                 }
-                return Task::none();
-            }
-            Action::NextCategory => {
-                self.cycle_category();
-                return Task::none();
-            }
-            Action::PrevCategory => {
-                self.cycle_category_back();
                 return Task::none();
             }
             Action::Back => {
@@ -629,19 +639,53 @@ impl Launcher {
             _ => {}
         }
 
-        let list_len = self.active_items().len();
-        if list_len == 0 {
-            return Task::none();
-        }
-
+        // Handle navigation:
+        // Up/Down: Change Category (Row)
+        // Left/Right: Change Index in current Row
         match action {
+            Action::Up => {
+                let prev_cat = self.category.prev();
+                if prev_cat != self.category {
+                    self.category = prev_cat;
+                    // self.clamp_selected_index(); // Already guaranteed by CategoryList state
+                    return self.snap_to_main_selection();
+                }
+            }
+            Action::Down => {
+                let next_cat = self.category.next();
+                if next_cat != self.category {
+                    self.category = next_cat;
+                    // self.clamp_selected_index();
+                    return self.snap_to_main_selection();
+                }
+            }
+            Action::Left => {
+                if self.current_category_list_mut().move_left() {
+                    return self.snap_to_main_selection();
+                }
+            }
+            Action::Right => {
+                if self.current_category_list_mut().move_right() {
+                    return self.snap_to_main_selection();
+                }
+            }
             Action::Select => {
-                return self.activate_selected();
+                if !self.current_category_list().is_empty() {
+                    return self.activate_selected();
+                }
             }
-            _ => {
-                self.selected_index =
-                    Self::next_grid_index(self.selected_index, action, self.cols, list_len);
+            // Keep tab cycling as fallback
+            Action::NextCategory => {
+                self.cycle_category();
+                // self.clamp_selected_index(); // Handled by CategoryList logic implicitly or we might need a method if we wanted to reset
+                return self.snap_to_main_selection();
             }
+            Action::PrevCategory => {
+                self.cycle_category_back();
+                // self.clamp_selected_index();
+                return self.snap_to_main_selection();
+            }
+            _ => {}
         }
 
         Task::none()
@@ -655,6 +699,38 @@ impl Launcher {
             Action::Right if current + 1 < len => current + 1,
             _ => current,
         }
+    }
+
+    fn snap_to_main_selection(&self) -> Task<Message> {
+        let list = self.current_category_list();
+        let scroll_id = list.scroll_id.clone();
+
+        let (item_width, _item_height, _image_width, _image_height) =
+            Self::get_category_dimensions(self.category);
+
+        let spacing = 10.0;
+        let item_width_with_spacing = item_width + spacing;
+
+        let target_x = list.selected_index as f32 * item_width_with_spacing;
+        // Center the item roughly or just scroll to it?
+        // Let's just scroll to it for now.
+        // Iced scrollable offset is absolute.
+
+        // We probably want to center the selected item if possible, but
+        // simple "ensure visible" logic is easier.
+        // Assuming "ensure visible" is what we want.
+        // But `scroll_to` takes an absolute position.
+
+        // Let's try to center it: target_x - (window_width / 2) + (item_width / 2)
+        let center_offset = target_x - (self.window_width / 2.0) + (item_width / 2.0);
+
+        operation::scroll_to(
+            scroll_id,
+            iced::widget::scrollable::AbsoluteOffset {
+                x: center_offset.max(0.0),
+                y: 0.0,
+            },
+        )
     }
 
     fn handle_context_menu_navigation(&mut self, action: Action) -> Task<Message> {
@@ -687,10 +763,7 @@ impl Launcher {
                     (Category::Apps, 1) => {
                         // Remove Entry
                         self.modal = ModalState::None;
-                        if self.selected_index < self.apps.len() {
-                            let removed = self.apps.remove(self.selected_index);
-                            self.clamp_selected_index();
-
+                        if let Some(removed) = self.apps.remove_selected() {
                             self.save_apps_config("Removed", "removing", &removed.name);
                         }
                     }
@@ -842,7 +915,7 @@ impl Launcher {
     }
 
     fn activate_selected(&mut self) -> Task<Message> {
-        let selection = self.active_items().get(self.selected_index).map(|item| {
+        let selection = self.current_category_list().get_selected().map(|item| {
             (
                 item.action.clone(),
                 item.name.clone(),
@@ -912,153 +985,16 @@ impl Launcher {
 
     fn cycle_category(&mut self) {
         self.category = self.category.next();
-        self.selected_index = 0;
         self.status_message = None;
-        self.update_columns();
     }
 
     fn cycle_category_back(&mut self) {
         self.category = self.category.prev();
-        self.selected_index = 0;
         self.status_message = None;
-        self.update_columns();
     }
 
-    fn update_columns(&mut self) {
-        let (item_width, _item_height, _image_width, _image_height) = match self.category {
-            Category::Games => (
-                GAME_POSTER_WIDTH + 16.0,   // Extra width for padding/border
-                GAME_POSTER_HEIGHT + 140.0, // Increased for text wrapping
-                GAME_POSTER_WIDTH,
-                GAME_POSTER_HEIGHT,
-            ),
-            _ => (ICON_ITEM_WIDTH, ICON_ITEM_HEIGHT, ICON_SIZE, ICON_SIZE),
-        };
-
-        // Estimate available width: Window Width - (Spacing * 2 for outer margins + spacing)
-        // Grid spacing is 10.
-        // Assuming typical margin/padding around the grid.
-        let available_width = self.window_width - 40.0;
-        let item_space = item_width + 10.0; // Item width + grid spacing
-
-        let cols = (available_width / item_space).floor() as usize;
-        self.cols = cols.max(1);
-    }
-
-    fn clamp_selected_index(&mut self) {
-        let list_len = self.active_items().len();
-        if list_len == 0 {
-            self.selected_index = 0;
-        } else if self.selected_index >= list_len {
-            self.selected_index = list_len.saturating_sub(1);
-        }
-    }
-
-    fn active_items(&self) -> &[LauncherItem] {
-        match self.category {
-            Category::Apps => &self.apps,
-            Category::Games => &self.games,
-            Category::System => &self.system_items,
-        }
-    }
-
-    fn render_header(&self) -> Element<'_, Message> {
-        let mut tabs = Row::new().spacing(12);
-        for category in Category::ALL {
-            let is_selected = category == self.category;
-            let label =
-                Text::new(category.title())
-                    .font(SANSATION)
-                    .size(22)
-                    .color(if is_selected {
-                        Color::WHITE
-                    } else {
-                        COLOR_TEXT_MUTED
-                    });
-
-            let tab = Container::new(label).padding(8).style(move |_theme| {
-                if is_selected {
-                    iced::widget::container::Style {
-                        background: Some(COLOR_ACCENT.into()),
-                        text_color: Some(Color::WHITE),
-                        ..Default::default()
-                    }
-                } else {
-                    iced::widget::container::Style {
-                        background: Some(COLOR_PANEL.into()),
-                        text_color: Some(Color::WHITE),
-                        ..Default::default()
-                    }
-                }
-            });
-
-            tabs = tabs.push(tab);
-        }
-
-        Container::new(tabs)
-            .width(Length::Fill)
-            .center_x(Length::Fill)
-            .into()
-    }
-
-    fn render_category(&self) -> Element<'_, Message> {
-        match self.category {
-            Category::Apps => self.render_list(
-                &self.apps,
-                self.apps_loaded,
-                self.apps_empty_message(),
-                "Loading apps...",
-            ),
-            Category::Games => self.render_list(
-                &self.games,
-                self.games_loaded,
-                "No games found.".to_string(),
-                "Scanning games...",
-            ),
-            Category::System => {
-                if self.system_items.is_empty() {
-                    Column::new()
-                        .push(
-                            Text::new("No system actions available.")
-                                .font(SANSATION)
-                                .color(Color::WHITE),
-                        )
-                        .align_x(iced::Alignment::Center)
-                        .into()
-                } else {
-                    self.render_grid(&self.system_items)
-                }
-            }
-        }
-    }
-
-    fn render_list(
-        &self,
-        items: &[LauncherItem],
-        loaded: bool,
-        empty_message: String,
-        loading_message: &str,
-    ) -> Element<'_, Message> {
-        if items.is_empty() {
-            let message = if loaded {
-                empty_message
-            } else {
-                loading_message.to_string()
-            };
-            return Column::new()
-                .push(Text::new(message).font(SANSATION).color(Color::WHITE))
-                .align_x(iced::Alignment::Center)
-                .into();
-        }
-
-        self.render_grid(items)
-    }
-
-    fn render_grid(&self, items: &[LauncherItem]) -> Element<'_, Message> {
-        // Determine dimensions based on category.
-        // For Games: tight fit around poster.
-        // For Apps: tight fit around icon.
-        let (item_width, item_height, image_width, image_height) = match self.category {
+    fn get_category_dimensions(category: Category) -> (f32, f32, f32, f32) {
+        match category {
             Category::Games => (
                 GAME_POSTER_WIDTH + 16.0,
                 GAME_POSTER_HEIGHT + 140.0,
@@ -1066,41 +1002,131 @@ impl Launcher {
                 GAME_POSTER_HEIGHT,
             ),
             _ => (ICON_ITEM_WIDTH, ICON_ITEM_HEIGHT, ICON_SIZE, ICON_SIZE),
+        }
+    }
+
+    fn render_category(&self) -> Element<'_, Message> {
+        let apps_msg = if !self.apps_loaded {
+            "Loading apps...".to_string()
+        } else {
+            self.apps_empty_message()
         };
 
-        let mut grid = Grid::new()
-            .columns(self.cols)
-            .spacing(10)
-            .height(Length::Shrink);
+        let apps_row = self.render_section_row(Category::Apps, &self.apps, apps_msg);
 
-        for (i, item) in items.iter().enumerate() {
-            let is_selected = i == self.selected_index;
-            grid = grid.push(self.render_item(
-                item,
-                is_selected,
-                image_width,
-                image_height,
-                item_width,
-                item_height,
-            ));
-        }
+        let games_msg = if !self.games_loaded {
+            "Scanning games...".to_string()
+        } else {
+            "No games found.".to_string()
+        };
 
-        Scrollable::new(grid)
-            .width(Length::Fill)
-            .height(Length::Fill)
+        let games_row = self.render_section_row(Category::Games, &self.games, games_msg);
+
+        let system_row = self.render_section_row(
+            Category::System,
+            &self.system_items,
+            "No system actions available.".to_string(),
+        );
+
+        Column::new()
+            .push(apps_row)
+            .push(games_row)
+            .push(system_row)
+            .spacing(30)
             .into()
     }
 
-    fn render_item(
+    fn render_section_row(
         &self,
+        category: Category,
+        list: &CategoryList,
+        empty_msg: String,
+    ) -> Element<'_, Message> {
+        let is_active = self.category == category;
+        let selected_index = if is_active { list.selected_index } else { 0 };
+        let version = list.version;
+        // We must clone the Arc to pass it to the closure, ensuring 'static lifetime for lazy
+        let items = list.items.clone();
+        let scroll_id = list.scroll_id.clone();
+        // Clone the handle so the closure owns it (required for 'static lifetime)
+        let default_icon_handle = self.default_icon_handle.clone();
+
+        iced::widget::lazy(
+            (category, is_active, selected_index, version),
+            move |_| -> Element<'static, Message> {
+                let title =
+                    Text::new(category.title())
+                        .font(SANSATION)
+                        .size(24)
+                        .color(if is_active {
+                            Color::WHITE
+                        } else {
+                            COLOR_TEXT_DIM
+                        });
+
+                // Dimensions
+                let (item_width, item_height, image_width, image_height) =
+                    Self::get_category_dimensions(category);
+
+                let content: Element<'static, Message> = if items.is_empty() {
+                    Container::new(
+                        Text::new(empty_msg.clone())
+                            .font(SANSATION)
+                            .color(COLOR_TEXT_DIM),
+                    )
+                    .height(Length::Fixed(item_height))
+                    .center_y(Length::Fixed(item_height))
+                    .padding(20)
+                    .into()
+                } else {
+                    let mut row = Row::new().spacing(10);
+
+                    for (i, item) in items.iter().enumerate() {
+                        // Highlight logic:
+                        let is_selected = is_active && (i == selected_index);
+
+                        row = row.push(Self::render_item(
+                            item,
+                            is_selected,
+                            image_width,
+                            image_height,
+                            item_width,
+                            item_height,
+                            default_icon_handle.clone(),
+                        ));
+                    }
+
+                    Scrollable::new(row)
+                        .direction(scrollable::Direction::Horizontal(
+                            scrollable::Scrollbar::new(),
+                        ))
+                        .id(scroll_id.clone())
+                        .width(Length::Fill)
+                        .height(Length::Shrink)
+                        .into()
+                };
+
+                Column::new()
+                    .push(title)
+                    .push(content)
+                    .spacing(10)
+                    .padding(10) // Left padding for the whole row
+                    .into()
+            },
+        )
+        .into()
+    }
+
+    fn render_item(
         item: &LauncherItem,
         is_selected: bool,
         image_width: f32,
         image_height: f32,
         item_width: f32,
         _item_height: f32,
-    ) -> Element<'_, Message> {
-        let icon_widget: Element<'_, Message> = if let Some(sys_icon) = &item.system_icon {
+        default_icon_handle: Option<iced::widget::svg::Handle>,
+    ) -> Element<'static, Message> {
+        let icon_widget: Element<'static, Message> = if let Some(sys_icon) = &item.system_icon {
             match sys_icon {
                 SystemIcon::PowerOff => icons::power_off_icon(image_width),
                 SystemIcon::Pause => icons::pause_icon(image_width),
@@ -1109,12 +1135,12 @@ impl Launcher {
             }
         } else {
             render_icon(
-                item.icon.as_deref().map(IconPath::Str),
+                item.icon.as_ref().map(PathBuf::from),
                 image_width,
                 image_height,
                 "ICON",
                 None,
-                self.default_icon_handle.clone(),
+                default_icon_handle,
             )
         };
 
@@ -1186,18 +1212,9 @@ impl Launcher {
     }
 
     fn save_apps_config(&self, success_action: &str, failure_action: &str, app_name: &str) {
-        let apps_to_save = Self::app_entries_from_items(&self.apps);
-        match save_config(&apps_to_save) {
-            Ok(_) => info!("{} app: {}", success_action, app_name),
-            Err(err) => warn!(
-                "Failed to save config after {} app {}: {}",
-                failure_action, app_name, err
-            ),
-        }
-    }
-
-    fn app_entries_from_items(items: &[LauncherItem]) -> Vec<AppEntry> {
-        items
+        let apps_to_save: Vec<AppEntry> = self
+            .apps
+            .items
             .iter()
             .filter_map(|item| match &item.action {
                 LauncherAction::Launch { exec } => Some(AppEntry {
@@ -1209,11 +1226,14 @@ impl Launcher {
                 }),
                 _ => None,
             })
-            .collect()
-    }
-
-    fn sort_items(items: &mut [LauncherItem]) {
-        items.sort_by(|a, b| a.name.cmp(&b.name));
+            .collect();
+        match save_config(&apps_to_save) {
+            Ok(_) => info!("{} app: {}", success_action, app_name),
+            Err(err) => warn!(
+                "Failed to save config after {} app {}: {}",
+                failure_action, app_name, err
+            ),
+        }
     }
 
     fn apps_empty_message(&self) -> String {
@@ -1266,31 +1286,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_category_cycles() {
+    fn test_navigation_memory() {
         let (mut launcher, _) = Launcher::new();
+        // Setup mock data
+        launcher.apps.set_items(vec![
+            LauncherItem::exit(), // 0
+            LauncherItem::exit(), // 1
+        ]);
+        launcher.games.set_items(vec![
+            LauncherItem::exit(), // 0
+            LauncherItem::exit(), // 1
+            LauncherItem::exit(), // 2
+        ]);
 
-        assert_eq!(launcher.category, Category::Apps);
-        let _ = launcher.handle_navigation(Action::NextCategory);
+        // Start at Apps
+        launcher.category = Category::Apps;
+        launcher.apps.selected_index = 0;
+
+        // Move Right -> Apps index 1
+        let _ = launcher.handle_navigation(Action::Right);
+        assert_eq!(launcher.apps.selected_index, 1);
+
+        // Switch to Games (Down)
+        let _ = launcher.handle_navigation(Action::Down);
         assert_eq!(launcher.category, Category::Games);
-        let _ = launcher.handle_navigation(Action::NextCategory);
-        assert_eq!(launcher.category, Category::System);
-        let _ = launcher.handle_navigation(Action::NextCategory);
+        assert_eq!(launcher.games.selected_index, 0); // Default
+
+        // Move Right -> Games index 1
+        let _ = launcher.handle_navigation(Action::Right);
+        assert_eq!(launcher.games.selected_index, 1);
+
+        // Switch back to Apps (Up)
+        let _ = launcher.handle_navigation(Action::Up);
         assert_eq!(launcher.category, Category::Apps);
+        assert_eq!(launcher.apps.selected_index, 1); // REMEMBERED!
     }
 
     #[test]
-    fn test_navigate_grid_moves_within_bounds() {
-        let index = 5;
-        let new_index = Launcher::next_grid_index(index, Action::Up, 3, 10);
+    fn test_bounds_checking() {
+        let (mut launcher, _) = Launcher::new();
+        launcher.apps.set_items(vec![LauncherItem::exit()]); // Len 1
+        launcher.apps.selected_index = 0;
 
-        assert_eq!(new_index, 2);
-    }
+        // Right on last item -> should stay
+        let _ = launcher.handle_navigation(Action::Right);
+        assert_eq!(launcher.apps.selected_index, 0);
 
-    #[test]
-    fn test_navigate_grid_blocks_out_of_bounds() {
-        let index = 1;
-        let new_index = Launcher::next_grid_index(index, Action::Up, 3, 10);
-
-        assert_eq!(new_index, 1);
+        // Left on first item -> should stay
+        let _ = launcher.handle_navigation(Action::Left);
+        assert_eq!(launcher.apps.selected_index, 0);
     }
 }

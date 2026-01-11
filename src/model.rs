@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SystemIcon {
     PowerOff,
     Pause,
@@ -9,7 +9,7 @@ pub enum SystemIcon {
     ExitBracket,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
     Apps,
     Games,
@@ -17,8 +17,6 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Category; 3] = [Category::Apps, Category::Games, Category::System];
-
     pub fn title(self) -> &'static str {
         match self {
             Category::Apps => "Apps",
@@ -44,7 +42,7 @@ impl Category {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LauncherAction {
     Launch { exec: String },
     SystemUpdate,
@@ -53,7 +51,7 @@ pub enum LauncherAction {
     Exit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LauncherItem {
     pub id: Uuid,
     pub name: String,
@@ -136,7 +134,7 @@ impl LauncherItem {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct AppEntry {
     pub id: Uuid,
     pub name: String,

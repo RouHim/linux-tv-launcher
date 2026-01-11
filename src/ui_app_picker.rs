@@ -5,7 +5,7 @@ use iced::{Color, Element, Length};
 
 use crate::desktop_apps::DesktopApp;
 use crate::ui::Message;
-use crate::ui_components::{render_icon, IconPath};
+use crate::ui_components::render_icon;
 use crate::ui_theme::*;
 
 pub struct AppPickerState {
@@ -115,12 +115,12 @@ pub fn render_app_picker<'a>(
 
 fn render_picker_item<'a>(app: &'a DesktopApp, is_selected: bool) -> Element<'a, Message> {
     let icon_widget = render_icon(
-        app.icon_path.as_deref().map(IconPath::Path),
+        app.icon_path.clone(),
         ICON_SIZE,
         ICON_SIZE,
         "?",
         Some(48),
-        None, // No default icon handle passed here for simplicity, or could pass it if needed
+        None,
     );
 
     let icon_container = Container::new(icon_widget).padding(6);

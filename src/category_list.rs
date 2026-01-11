@@ -1,0 +1,268 @@
+use iced::widget::Id;
+use std::sync::Arc;
+use uuid::Uuid;
+
+use crate::model::LauncherItem;
+
+#[derive(Debug, Clone)]
+pub struct CategoryList {
+    pub items: Arc<Vec<LauncherItem>>,
+    pub selected_index: usize,
+    pub version: usize,
+    pub scroll_id: Id,
+}
+
+impl CategoryList {
+    pub fn new(items: Vec<LauncherItem>) -> Self {
+        Self {
+            items: Arc::new(items),
+            selected_index: 0,
+            version: 0,
+            scroll_id: Id::unique(),
+        }
+    }
+
+    pub fn set_items(&mut self, items: Vec<LauncherItem>) {
+        self.items = Arc::new(items);
+        self.clamp_index();
+        self.bump_version();
+    }
+
+    pub fn clear(&mut self) {
+        self.items = Arc::new(Vec::new());
+        self.selected_index = 0;
+        self.bump_version();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    pub fn get_selected(&self) -> Option<&LauncherItem> {
+        self.items.get(self.selected_index)
+    }
+
+    pub fn move_left(&mut self) -> bool {
+        if !self.items.is_empty() && self.selected_index > 0 {
+            self.selected_index -= 1;
+            return true;
+        }
+        false
+    }
+
+    pub fn move_right(&mut self) -> bool {
+        if !self.items.is_empty() && self.selected_index + 1 < self.items.len() {
+            self.selected_index += 1;
+            return true;
+        }
+        false
+    }
+
+    pub fn update_item_by_id<F>(&mut self, id: Uuid, f: F)
+    where
+        F: FnOnce(&mut LauncherItem),
+    {
+        if let Some(index) = self.items.iter().position(|i| i.id == id) {
+            let mut new_items = (*self.items).clone();
+            if let Some(item) = new_items.get_mut(index) {
+                f(item);
+                self.items = Arc::new(new_items);
+                self.bump_version();
+            }
+        }
+    }
+
+    pub fn add_item(&mut self, item: LauncherItem) {
+        let mut new_items = (*self.items).clone();
+        new_items.push(item);
+        self.sort_items(&mut new_items);
+        self.items = Arc::new(new_items);
+        self.clamp_index();
+        self.bump_version();
+    }
+
+    pub fn remove_selected(&mut self) -> Option<LauncherItem> {
+        if self.selected_index < self.items.len() {
+            let mut new_items = (*self.items).clone();
+            let removed = new_items.remove(self.selected_index);
+            self.items = Arc::new(new_items);
+            self.clamp_index();
+            self.bump_version();
+            Some(removed)
+        } else {
+            None
+        }
+    }
+
+    fn clamp_index(&mut self) {
+        let len = self.items.len();
+        if len == 0 {
+            self.selected_index = 0;
+        } else if self.selected_index >= len {
+            self.selected_index = len.saturating_sub(1);
+        }
+    }
+
+    fn bump_version(&mut self) {
+        self.version = self.version.wrapping_add(1);
+    }
+
+    fn sort_items(&self, items: &mut [LauncherItem]) {
+        items.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+
+    pub fn sort_inplace(&mut self) {
+        let mut new_items = (*self.items).clone();
+        self.sort_items(&mut new_items);
+        self.items = Arc::new(new_items);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{LauncherAction, LauncherItem};
+
+    fn item(name: &str) -> LauncherItem {
+        LauncherItem {
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            icon: None,
+            system_icon: None,
+            action: LauncherAction::Exit,
+            source_image_url: None,
+            game_executable: None,
+        }
+    }
+
+    fn names(list: &CategoryList) -> Vec<&str> {
+        list.items.iter().map(|i| i.name.as_str()).collect()
+    }
+
+    #[test]
+    fn test_new_and_basic_operations() {
+        let list = CategoryList::new(Vec::new());
+        assert!(list.is_empty());
+        assert_eq!(list.selected_index, 0);
+        assert!(list.get_selected().is_none());
+
+        let list = CategoryList::new(vec![item("A"), item("B")]);
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(list.get_selected().unwrap().name, "A");
+    }
+
+    #[test]
+    fn test_move_left_right_boundaries() {
+        let mut list = CategoryList::new(vec![item("A"), item("B"), item("C")]);
+
+        // Can't move left from start
+        assert!(!list.move_left());
+        assert_eq!(list.selected_index, 0);
+
+        // Move right twice
+        assert!(list.move_right());
+        assert!(list.move_right());
+        assert_eq!(list.selected_index, 2);
+
+        // Can't move right from end
+        assert!(!list.move_right());
+        assert_eq!(list.selected_index, 2);
+
+        // Move left
+        assert!(list.move_left());
+        assert_eq!(list.selected_index, 1);
+
+        // Empty list - no movement
+        let mut empty = CategoryList::new(Vec::new());
+        assert!(!empty.move_left());
+        assert!(!empty.move_right());
+    }
+
+    #[test]
+    fn test_remove_selected_clamps_index() {
+        let mut list = CategoryList::new(vec![item("A"), item("B"), item("C")]);
+
+        // Remove from middle - index stays, points to next item
+        list.selected_index = 1;
+        assert_eq!(list.remove_selected().unwrap().name, "B");
+        assert_eq!(list.selected_index, 1);
+        assert_eq!(list.get_selected().unwrap().name, "C");
+
+        // Remove from end - index clamps down
+        list.selected_index = 1;
+        assert_eq!(list.remove_selected().unwrap().name, "C");
+        assert_eq!(list.selected_index, 0);
+
+        // Remove last item
+        assert_eq!(list.remove_selected().unwrap().name, "A");
+        assert!(list.is_empty());
+        assert_eq!(list.selected_index, 0);
+
+        // Remove from empty - returns None
+        assert!(list.remove_selected().is_none());
+    }
+
+    #[test]
+    fn test_add_item_sorts_and_set_items_clamps() {
+        let mut list = CategoryList::new(vec![item("A"), item("C")]);
+        list.add_item(item("B"));
+        assert_eq!(names(&list), vec!["A", "B", "C"]);
+
+        // set_items clamps out-of-bounds index
+        list.selected_index = 2;
+        list.set_items(vec![item("X")]);
+        assert_eq!(list.selected_index, 0);
+
+        // set_items preserves valid index
+        list.set_items(vec![item("Y"), item("Z")]);
+        list.selected_index = 1;
+        list.set_items(vec![item("P"), item("Q")]);
+        assert_eq!(list.selected_index, 1);
+    }
+
+    #[test]
+    fn test_update_item_by_id() {
+        let i = item("Original");
+        let id = i.id;
+        let mut list = CategoryList::new(vec![i]);
+
+        list.update_item_by_id(id, |i| i.name = "Updated".to_string());
+        assert_eq!(list.items[0].name, "Updated");
+
+        // Non-existent ID does nothing
+        let v = list.version;
+        list.update_item_by_id(Uuid::new_v4(), |i| i.name = "Nope".to_string());
+        assert_eq!(list.version, v);
+        assert_eq!(list.items[0].name, "Updated");
+    }
+
+    #[test]
+    fn test_version_bumps_on_mutations() {
+        let mut list = CategoryList::new(Vec::new());
+        assert_eq!(list.version, 0);
+
+        list.set_items(vec![item("A")]);
+        assert_eq!(list.version, 1);
+
+        list.add_item(item("B"));
+        assert_eq!(list.version, 2);
+
+        list.remove_selected();
+        assert_eq!(list.version, 3);
+
+        list.clear();
+        assert_eq!(list.version, 4);
+
+        // Test wrapping
+        list.version = usize::MAX;
+        list.set_items(vec![item("X")]);
+        assert_eq!(list.version, 0);
+    }
+
+    #[test]
+    fn test_sort_inplace() {
+        let mut list = CategoryList::new(vec![item("C"), item("A"), item("B")]);
+        list.sort_inplace();
+        assert_eq!(names(&list), vec!["A", "B", "C"]);
+    }
+}

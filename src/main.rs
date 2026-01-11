@@ -1,6 +1,7 @@
 use tracing_subscriber::EnvFilter;
 
 mod assets;
+mod category_list;
 mod desktop_apps;
 mod focus_manager;
 mod game_image_fetcher;
