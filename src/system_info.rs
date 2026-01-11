@@ -215,6 +215,10 @@ fn get_proton_versions() -> Vec<(String, String)> {
         PathBuf::from(&home).join(".steam/root/compatibilitytools.d"),
         PathBuf::from(&home).join(".steam/steam/compatibilitytools.d"),
         PathBuf::from(&home).join(".local/share/Steam/compatibilitytools.d"),
+        PathBuf::from(&home).join(".steam/compatibilitytools.d"),
+        PathBuf::from(&home).join(".local/share/Steam/compatibility-tools.d"),
+        PathBuf::from(&home)
+            .join(".var/app/com.valvesoftware.Steam/data/Steam/compatibilitytools.d"),
     ];
 
     for path in search_paths {
