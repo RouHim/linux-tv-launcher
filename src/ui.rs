@@ -1044,80 +1044,61 @@ impl Launcher {
     ) -> Element<'_, Message> {
         let is_active = self.category == category;
         let selected_index = if is_active { list.selected_index } else { 0 };
-        let version = list.version;
-        // We must clone the Arc to pass it to the closure, ensuring 'static lifetime for lazy
-        let items = list.items.clone();
-        let scroll_id = list.scroll_id.clone();
-        // Clone the handle so the closure owns it (required for 'static lifetime)
-        let default_icon_handle = self.default_icon_handle.clone();
 
-        iced::widget::lazy(
-            (category, is_active, selected_index, version),
-            move |_| -> Element<'static, Message> {
-                let title =
-                    Text::new(category.title())
-                        .font(SANSATION)
-                        .size(24)
-                        .color(if is_active {
-                            Color::WHITE
-                        } else {
-                            COLOR_TEXT_DIM
-                        });
+        let title = Text::new(category.title())
+            .font(SANSATION)
+            .size(24)
+            .color(if is_active {
+                Color::WHITE
+            } else {
+                COLOR_TEXT_DIM
+            });
 
-                // Dimensions
-                let (item_width, item_height, image_width, image_height) =
-                    Self::get_category_dimensions(category);
+        let (item_width, item_height, image_width, image_height) =
+            Self::get_category_dimensions(category);
 
-                let content: Element<'static, Message> = if items.is_empty() {
-                    Container::new(
-                        Text::new(empty_msg.clone())
-                            .font(SANSATION)
-                            .color(COLOR_TEXT_DIM),
-                    )
-                    .height(Length::Fixed(item_height))
-                    .center_y(Length::Fixed(item_height))
-                    .padding(20)
-                    .into()
-                } else {
-                    let mut row = Row::new().spacing(10);
+        let content: Element<'_, Message> = if list.items.is_empty() {
+            Container::new(Text::new(empty_msg).font(SANSATION).color(COLOR_TEXT_DIM))
+                .height(Length::Fixed(item_height))
+                .center_y(Length::Fixed(item_height))
+                .padding(20)
+                .into()
+        } else {
+            let mut row = Row::new().spacing(10);
 
-                    for (i, item) in items.iter().enumerate() {
-                        // Highlight logic:
-                        let is_selected = is_active && (i == selected_index);
+            for (i, item) in list.items.iter().enumerate() {
+                let is_selected = is_active && (i == selected_index);
 
-                        row = row.push(Self::render_item(
-                            item,
-                            is_selected,
-                            image_width,
-                            image_height,
-                            item_width,
-                            item_height,
-                            default_icon_handle.clone(),
-                        ));
-                    }
+                row = row.push(Self::render_item(
+                    item,
+                    is_selected,
+                    image_width,
+                    image_height,
+                    item_width,
+                    item_height,
+                    self.default_icon_handle.clone(),
+                ));
+            }
 
-                    Scrollable::new(row)
-                        .direction(scrollable::Direction::Horizontal(
-                            scrollable::Scrollbar::new(),
-                        ))
-                        .id(scroll_id.clone())
-                        .width(Length::Fill)
-                        .height(Length::Shrink)
-                        .into()
-                };
+            Scrollable::new(row)
+                .direction(scrollable::Direction::Horizontal(
+                    scrollable::Scrollbar::new(),
+                ))
+                .id(list.scroll_id.clone())
+                .width(Length::Fill)
+                .height(Length::Shrink)
+                .into()
+        };
 
-                Column::new()
-                    .push(title)
-                    .push(content)
-                    .spacing(10)
-                    .padding(10) // Left padding for the whole row
-                    .into()
-            },
-        )
-        .into()
+        Column::new()
+            .push(title)
+            .push(content)
+            .spacing(10)
+            .padding(10)
+            .into()
     }
 
-    fn render_item(
+    fn render_item<'a>(
         item: &LauncherItem,
         is_selected: bool,
         image_width: f32,
@@ -1125,8 +1106,8 @@ impl Launcher {
         item_width: f32,
         _item_height: f32,
         default_icon_handle: Option<iced::widget::svg::Handle>,
-    ) -> Element<'static, Message> {
-        let icon_widget: Element<'static, Message> = if let Some(sys_icon) = &item.system_icon {
+    ) -> Element<'a, Message> {
+        let icon_widget: Element<'a, Message> = if let Some(sys_icon) = &item.system_icon {
             match sys_icon {
                 SystemIcon::PowerOff => icons::power_off_icon(image_width),
                 SystemIcon::Pause => icons::pause_icon(image_width),
