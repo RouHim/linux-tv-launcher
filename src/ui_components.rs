@@ -1,9 +1,15 @@
 use chrono::{DateTime, Local};
-use iced::widget::{Container, Image, Svg, Text};
-use iced::{Color, ContentFit, Element, Length};
+use gilrs::PowerInfo;
+use iced::widget::{Container, Image, Row, Stack, Svg, Text};
+use iced::{Alignment, Color, ContentFit, Element, Length};
 use std::path::{Path, PathBuf};
 
-use crate::ui_theme::{COLOR_TEXT_BRIGHT, SANSATION};
+use crate::gamepad_battery::GamepadBattery;
+use crate::icons;
+use crate::ui_theme::{
+    COLOR_BATTERY_CHARGING, COLOR_BATTERY_GOOD, COLOR_BATTERY_LOW, COLOR_BATTERY_MODERATE,
+    COLOR_TEXT_BRIGHT, SANSATION,
+};
 
 fn is_svg(path: &Path) -> bool {
     path.extension()
@@ -56,18 +62,96 @@ where
         .into()
 }
 
+pub fn render_gamepad_batteries<'a, Message>(batteries: &[GamepadBattery]) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    let mut row = Row::new().spacing(24).align_y(Alignment::Center);
+
+    for battery in batteries.iter().take(4) {
+        if let Some((battery_icon, _color)) = get_battery_visuals(battery.power_info) {
+            // Gamepad icon
+            let gp_icon = icons::gamepad_icon(22.0, Color::WHITE);
+
+            row = row.push(
+                Row::new()
+                    .spacing(8)
+                    .align_y(Alignment::Center)
+                    .push(gp_icon)
+                    .push(battery_icon),
+            );
+        }
+    }
+
+    row.into()
+}
+
+fn get_battery_visuals<'a, Message>(power: PowerInfo) -> Option<(Element<'a, Message>, Color)>
+where
+    Message: 'a,
+{
+    match power {
+        PowerInfo::Charged => {
+            let color = COLOR_BATTERY_GOOD;
+            let icon = Stack::new()
+                .push(icons::battery_full_icon(18.0, color))
+                .push(icons::bolt_icon(12.0, color));
+            Some((icon.into(), color))
+        }
+        PowerInfo::Charging(lvl) => {
+            let color = COLOR_BATTERY_CHARGING;
+            let base = battery_level_icon(lvl, color);
+            let icon = Stack::new().push(base).push(icons::bolt_icon(12.0, color));
+            Some((icon.into(), color))
+        }
+        PowerInfo::Discharging(lvl) => {
+            let (icon, color) = if lvl > 60 {
+                (
+                    icons::battery_full_icon(18.0, COLOR_BATTERY_GOOD),
+                    COLOR_BATTERY_GOOD,
+                )
+            } else if lvl > 30 {
+                (
+                    icons::battery_half_icon(18.0, COLOR_BATTERY_MODERATE),
+                    COLOR_BATTERY_MODERATE,
+                )
+            } else {
+                (
+                    icons::battery_quarter_icon(18.0, COLOR_BATTERY_LOW),
+                    COLOR_BATTERY_LOW,
+                )
+            };
+            Some((icon.into(), color))
+        }
+        PowerInfo::Wired => Some((icons::plug_icon(18.0, Color::WHITE), Color::WHITE)),
+        PowerInfo::Unknown => None,
+    }
+}
+
+fn battery_level_icon<'a, Message>(lvl: u8, color: Color) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    if lvl > 90 {
+        icons::battery_full_icon(18.0, color)
+    } else if lvl > 60 {
+        icons::battery_three_quarters_icon(18.0, color)
+    } else if lvl > 40 {
+        icons::battery_half_icon(18.0, color)
+    } else if lvl > 15 {
+        icons::battery_quarter_icon(18.0, color)
+    } else {
+        icons::battery_empty_icon(18.0, color)
+    }
+}
+
 pub fn render_clock<'a, Message>(time: &DateTime<Local>) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    Container::new(
-        Text::new(time.format("%H:%M").to_string())
-            .font(SANSATION)
-            .size(32)
-            .color(COLOR_TEXT_BRIGHT),
-    )
-    .padding(30)
-    .width(Length::Fill)
-    .align_x(iced::alignment::Horizontal::Right)
-    .into()
+    Text::new(time.format("%H:%M").to_string())
+        .font(SANSATION)
+        .size(32)
+        .color(COLOR_TEXT_BRIGHT)
+        .into()
 }

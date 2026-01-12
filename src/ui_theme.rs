@@ -25,3 +25,9 @@ pub const COLOR_ACCENT_OVERLAY: Color = Color::from_rgba(0.2, 0.4, 0.8, 0.3);
 pub const COLOR_OVERLAY: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.7);
 pub const COLOR_OVERLAY_STRONG: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.8);
 pub const COLOR_STATUS_TEXT: Color = Color::from_rgb(0.9, 0.8, 0.4);
+
+// Battery Colors
+pub const COLOR_BATTERY_GOOD: Color = Color::from_rgb(0.3, 0.69, 0.31);
+pub const COLOR_BATTERY_MODERATE: Color = Color::from_rgb(1.0, 0.6, 0.0);
+pub const COLOR_BATTERY_LOW: Color = Color::from_rgb(0.96, 0.26, 0.21);
+pub const COLOR_BATTERY_CHARGING: Color = Color::from_rgb(0.13, 0.59, 0.95);
