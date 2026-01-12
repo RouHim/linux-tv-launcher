@@ -91,6 +91,7 @@ jobs:
             --enable-static \
             --disable-shared \
             CC=x86_64-unknown-linux-musl-gcc \
+            CFLAGS="-fPIC" \
             PKG_CONFIG_PATH=/usr/local/musl/x86_64-unknown-linux-musl/lib/pkgconfig
           
           make -j$(nproc)
@@ -144,6 +145,7 @@ jobs:
             --enable-static \
             --disable-shared \
             CC=aarch64-unknown-linux-musl-gcc \
+            CFLAGS="-fPIC" \
             PKG_CONFIG_PATH=/usr/local/musl/aarch64-unknown-linux-musl/lib/pkgconfig
           
           make -j$(nproc)
