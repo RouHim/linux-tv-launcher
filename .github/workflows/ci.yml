@@ -64,33 +64,47 @@ jobs:
     needs: [ check ]
     runs-on: ubuntu-latest
     name: Build x86_64-unknown-linux-musl
+    container:
+      image: ghcr.io/rust-cross/rust-musl-cross:x86_64-musl
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for semantic-release
+          fetch-depth: 0
 
-      - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl
+      - name: Build eudev for musl
+        run: |
+          apt-get update
+          apt-get install -y gperf
+          
+          cd /tmp
+          curl -sL https://github.com/eudev-project/eudev/releases/download/v3.2.14/eudev-3.2.14.tar.gz | tar xz
+          cd eudev-3.2.14
+          
+          ./configure \
+            --prefix=/usr/local/musl/x86_64-unknown-linux-musl \
+            --host=x86_64-unknown-linux-musl \
+            --disable-blkid \
+            --disable-kmod \
+            --disable-manpages \
+            --enable-static \
+            --disable-shared \
+            CC=x86_64-unknown-linux-musl-gcc \
+            PKG_CONFIG_PATH=/usr/local/musl/x86_64-unknown-linux-musl/lib/pkgconfig
+          
+          make -j$(nproc)
+          make install
 
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: x86_64-unknown-linux-musl
-
-      - name: Install cross
-        run: cargo install cross
-
-      - name: Build x86_64-unknown-linux-musl release
+      - name: Build release
         env:
           STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
-        run: cross build --target x86_64-unknown-linux-musl --release
+          PKG_CONFIG_PATH: /usr/local/musl/x86_64-unknown-linux-musl/lib/pkgconfig
+          PKG_CONFIG_ALLOW_CROSS: "1"
+        run: cargo build --release
 
       - name: Strip binary
-        run: strip target/x86_64-unknown-linux-musl/release/linux-tv-launcher
+        run: musl-strip target/x86_64-unknown-linux-musl/release/linux-tv-launcher
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -101,37 +115,49 @@ jobs:
 
   build-arm64:
     needs: [ check ]
-    runs-on: ubuntu-arm64
+    runs-on: ubuntu-latest
     name: Build aarch64-unknown-linux-musl
+    container:
+      image: ghcr.io/rust-cross/rust-musl-cross:aarch64-musl
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for semantic-release
+          fetch-depth: 0
 
-      - name: Install rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-unknown-linux-musl
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: aarch64-unknown-linux-musl
-
-      - name: Install system dependencies
+      - name: Build eudev for musl
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev pkg-config
+          apt-get update
+          apt-get install -y gperf
+          
+          cd /tmp
+          curl -sL https://github.com/eudev-project/eudev/releases/download/v3.2.14/eudev-3.2.14.tar.gz | tar xz
+          cd eudev-3.2.14
+          
+          ./configure \
+            --prefix=/usr/local/musl/aarch64-unknown-linux-musl \
+            --host=aarch64-unknown-linux-musl \
+            --disable-blkid \
+            --disable-kmod \
+            --disable-manpages \
+            --enable-static \
+            --disable-shared \
+            CC=aarch64-unknown-linux-musl-gcc \
+            PKG_CONFIG_PATH=/usr/local/musl/aarch64-unknown-linux-musl/lib/pkgconfig
+          
+          make -j$(nproc)
+          make install
 
-      - name: Build aarch64-unknown-linux-musl release (native)
+      - name: Build release
         env:
           STEAMGRIDDB_API_KEY: ${{ secrets.STEAMGRIDDB_API_KEY }}
-        run: cargo build --target aarch64-unknown-linux-musl --release
+          PKG_CONFIG_PATH: /usr/local/musl/aarch64-unknown-linux-musl/lib/pkgconfig
+          PKG_CONFIG_ALLOW_CROSS: "1"
+        run: cargo build --release
 
       - name: Strip binary
-        run: strip target/aarch64-unknown-linux-musl/release/linux-tv-launcher
+        run: musl-strip target/aarch64-unknown-linux-musl/release/linux-tv-launcher
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
