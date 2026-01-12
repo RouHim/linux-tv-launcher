@@ -76,7 +76,7 @@ jobs:
       - name: Build eudev for musl
         run: |
           apt-get update
-          apt-get install -y gperf
+          apt-get install -y gperf pkg-config
           
           cd /tmp
           curl -sL https://github.com/eudev-project/eudev/releases/download/v3.2.14/eudev-3.2.14.tar.gz | tar xz
@@ -129,7 +129,7 @@ jobs:
       - name: Build eudev for musl
         run: |
           apt-get update
-          apt-get install -y gperf
+          apt-get install -y gperf pkg-config
           
           cd /tmp
           curl -sL https://github.com/eudev-project/eudev/releases/download/v3.2.14/eudev-3.2.14.tar.gz | tar xz
