@@ -27,7 +27,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cache sccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/sccache
           key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
