@@ -4,7 +4,7 @@ use iced::widget::{Container, Image, Row, Stack, Svg, Text};
 use iced::{Alignment, Color, ContentFit, Element, Length};
 use std::path::{Path, PathBuf};
 
-use crate::gamepad_battery::GamepadBattery;
+use crate::gamepad::GamepadBattery;
 use crate::icons;
 use crate::ui_theme::{
     COLOR_BATTERY_CHARGING, COLOR_BATTERY_GOOD, COLOR_BATTERY_LOW, COLOR_BATTERY_MODERATE,
@@ -105,23 +105,15 @@ where
             Some((icon.into(), color))
         }
         PowerInfo::Discharging(lvl) => {
-            let (icon, color) = if lvl > 60 {
-                (
-                    icons::battery_full_icon(18.0, COLOR_BATTERY_GOOD),
-                    COLOR_BATTERY_GOOD,
-                )
+            let color = if lvl > 60 {
+                COLOR_BATTERY_GOOD
             } else if lvl > 30 {
-                (
-                    icons::battery_half_icon(18.0, COLOR_BATTERY_MODERATE),
-                    COLOR_BATTERY_MODERATE,
-                )
+                COLOR_BATTERY_MODERATE
             } else {
-                (
-                    icons::battery_quarter_icon(18.0, COLOR_BATTERY_LOW),
-                    COLOR_BATTERY_LOW,
-                )
+                COLOR_BATTERY_LOW
             };
-            Some((icon.into(), color))
+            let icon = battery_level_icon(lvl, color);
+            Some((icon, color))
         }
         PowerInfo::Wired => Some((icons::plug_icon(18.0, Color::WHITE), Color::WHITE)),
         PowerInfo::Unknown => None,
@@ -132,17 +124,15 @@ fn battery_level_icon<'a, Message>(lvl: u8, color: Color) -> Element<'a, Message
 where
     Message: 'a,
 {
-    if lvl > 90 {
-        icons::battery_full_icon(18.0, color)
-    } else if lvl > 60 {
-        icons::battery_three_quarters_icon(18.0, color)
-    } else if lvl > 40 {
-        icons::battery_half_icon(18.0, color)
-    } else if lvl > 15 {
-        icons::battery_quarter_icon(18.0, color)
-    } else {
-        icons::battery_empty_icon(18.0, color)
-    }
+    let size = 18.0;
+    let icon = match lvl {
+        91..=u8::MAX => icons::battery_full_icon(size, color),
+        61..=90 => icons::battery_three_quarters_icon(size, color),
+        41..=60 => icons::battery_half_icon(size, color),
+        16..=40 => icons::battery_quarter_icon(size, color),
+        _ => icons::battery_empty_icon(size, color),
+    };
+    icon.into()
 }
 
 pub fn render_clock<'a, Message>(time: &DateTime<Local>) -> Element<'a, Message>

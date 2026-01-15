@@ -5,7 +5,6 @@ mod focus_manager;
 mod game_image_fetcher;
 mod game_sources;
 mod gamepad;
-mod gamepad_battery;
 mod icons;
 mod image_cache;
 mod input;

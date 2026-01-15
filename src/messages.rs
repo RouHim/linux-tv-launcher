@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::desktop_apps::DesktopApp;
-use crate::gamepad_battery::GamepadBattery;
+use crate::gamepad::GamepadBattery;
 use crate::input::Action;
 use crate::model::AppEntry;
 use crate::storage::AppConfig;

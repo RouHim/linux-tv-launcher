@@ -22,8 +22,7 @@ use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
 use crate::focus_manager::{monitor_app_process, MonitorTarget};
 use crate::game_image_fetcher::GameImageFetcher;
 use crate::game_sources::scan_games;
-use crate::gamepad::gamepad_subscription;
-use crate::gamepad_battery::{gamepad_battery_subscription, GamepadBattery};
+use crate::gamepad::{gamepad_subscription, GamepadBattery, GamepadEvent};
 use crate::image_cache::ImageCache;
 use crate::input::Action;
 use crate::launcher::{launch_app, resolve_monitor_target};
@@ -576,7 +575,10 @@ impl Launcher {
             return Subscription::none();
         }
 
-        let gamepad = gamepad_subscription().map(Message::Input);
+        let gamepad = gamepad_subscription().map(|event| match event {
+            GamepadEvent::Input(action) => Message::Input(action),
+            GamepadEvent::Battery(batteries) => Message::GamepadBatteryUpdate(batteries),
+        });
 
         let window_events = iced::event::listen_with(|event, _status, window_id| match event {
             Event::Window(iced::window::Event::Opened { .. }) => {
@@ -619,9 +621,6 @@ impl Launcher {
         });
 
         let mut subscriptions = vec![gamepad, keyboard, window_events];
-
-        // Gamepad battery subscription
-        subscriptions.push(gamepad_battery_subscription().map(Message::GamepadBatteryUpdate));
 
         // Clock subscription (every 1 second)
         subscriptions
