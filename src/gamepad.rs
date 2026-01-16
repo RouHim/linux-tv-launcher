@@ -137,11 +137,11 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                     // Handle Repeats
                     if let Some((action, start_time, last_emit)) = &mut current_repeater {
                         let now = Instant::now();
-                        if now.duration_since(*start_time) >= REPEAT_DELAY {
-                            if now.duration_since(*last_emit) >= REPEAT_INTERVAL {
-                                let _ = output.send(GamepadEvent::Input(*action)).await;
-                                *last_emit = now;
-                            }
+                        if now.duration_since(*start_time) >= REPEAT_DELAY
+                            && now.duration_since(*last_emit) >= REPEAT_INTERVAL
+                        {
+                            let _ = output.send(GamepadEvent::Input(*action)).await;
+                            *last_emit = now;
                         }
                     }
 
@@ -281,6 +281,7 @@ fn process_event(event: EventType, state: &mut AxisState) -> Option<GamepadInput
         EventType::ButtonPressed(Button::South, _) => Some(GamepadInput::Press(Action::Select)),
         EventType::ButtonPressed(Button::East, _) => Some(GamepadInput::Press(Action::Back)),
         EventType::ButtonPressed(Button::West, _) => Some(GamepadInput::Press(Action::ContextMenu)),
+        EventType::ButtonPressed(Button::North, _) => Some(GamepadInput::Press(Action::AddApp)),
         EventType::ButtonPressed(Button::DPadUp, _) => Some(GamepadInput::Press(Action::Up)),
         EventType::ButtonPressed(Button::DPadDown, _) => Some(GamepadInput::Press(Action::Down)),
         EventType::ButtonPressed(Button::DPadLeft, _) => Some(GamepadInput::Press(Action::Left)),

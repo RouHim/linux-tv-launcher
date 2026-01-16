@@ -86,6 +86,7 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
         ("A / South", "Select / Confirm"),
         ("B / East", "Back / Cancel"),
         ("X / West", "Context Menu"),
+        ("Y / North", "Add App (in Apps)"),
         ("D-Pad / Left Stick", "Navigate"),
         ("LB / LT", "Previous Category"),
         ("RB / RT", "Next Category"),

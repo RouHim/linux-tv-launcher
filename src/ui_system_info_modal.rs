@@ -205,7 +205,7 @@ fn build_right_column(info: &GamingSystemInfo) -> Element<'_, Message> {
         if info.gamemode.active {
             ("Installed (Active)", true)
         } else {
-            ("Installed (Inactive)", false)
+            ("Installed (Inactive)", true)
         }
     } else {
         ("Not Installed", false)
@@ -353,7 +353,7 @@ fn info_row_colored(label: &str, value: String, color: Color) -> Element<'_, Mes
                     .size(17)
                     .color(COLOR_TEXT_SOFT),
             )
-            .width(Length::Fixed(130.0)),
+            .width(Length::Fixed(100.0)),
         )
         .push(Text::new(value).font(SANSATION).size(17).color(color))
         .spacing(10)
@@ -373,7 +373,7 @@ fn info_row_with_status(label: String, value: String, ok: bool) -> Element<'stat
                     .size(17)
                     .color(COLOR_TEXT_SOFT),
             )
-            .width(Length::Fixed(120.0)),
+            .width(Length::Fixed(200.0)),
         )
         .push(Text::new(value).font(SANSATION).size(17).color(color))
         .spacing(8)

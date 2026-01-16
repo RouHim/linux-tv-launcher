@@ -1,6 +1,6 @@
 use iced::alignment::Horizontal;
 use iced::widget::{scrollable, Column, Container, Row, Scrollable, Text};
-use iced::{Color, Element, Length};
+use iced::{Background, Border, Color, Element, Length, Shadow};
 use std::path::PathBuf;
 
 use crate::category_list::CategoryList;
@@ -69,11 +69,45 @@ pub fn render_section_row<'a>(
 
         Scrollable::new(row)
             .direction(scrollable::Direction::Horizontal(
-                scrollable::Scrollbar::new(),
+                scrollable::Scrollbar::new()
+                    .spacing(16.0) // Add space between content and scrollbar
+                    .width(8.0)
+                    .scroller_width(6.0),
             ))
             .id(list.scroll_id.clone())
             .width(Length::Fill)
             .height(Length::Shrink)
+            .style(|_theme, _status| {
+                let scroller = scrollable::Scroller {
+                    background: Background::Color(COLOR_ACCENT),
+                    border: Border {
+                        radius: 3.0.into(),
+                        width: 0.0,
+                        color: Color::TRANSPARENT,
+                    },
+                };
+                let rail = scrollable::Rail {
+                    background: Some(Background::Color(COLOR_PANEL)),
+                    border: Border {
+                        radius: 4.0.into(),
+                        width: 0.0,
+                        color: Color::TRANSPARENT,
+                    },
+                    scroller,
+                };
+                scrollable::Style {
+                    container: iced::widget::container::Style::default(),
+                    vertical_rail: rail,
+                    horizontal_rail: rail,
+                    gap: None,
+                    auto_scroll: scrollable::AutoScroll {
+                        background: Background::Color(COLOR_PANEL),
+                        border: Border::default(),
+                        shadow: Shadow::default(),
+                        icon: Color::WHITE,
+                    },
+                }
+            })
             .into()
     };
 
