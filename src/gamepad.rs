@@ -1,11 +1,11 @@
 use crate::input::Action;
-use gilrs::{Button, Event, EventType, Gilrs, PowerInfo};
+use gilrs::{Axis, Button, Event, EventType, Gamepad, Gilrs, MappingSource, PowerInfo};
 use iced::futures::sink::SinkExt;
 use iced::Subscription;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
-const BATTERY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+const BATTERY_CHECK_INTERVAL: Duration = Duration::from_mins(1  );
 const DEADZONE: f32 = 0.6;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -19,6 +19,38 @@ pub struct GamepadInfo {
 pub enum GamepadEvent {
     Input(Action),
     Battery(Vec<GamepadInfo>),
+}
+
+/// Device capabilities extracted from Gilrs for pure logic classification
+struct GamepadCapabilities {
+    is_sdl_mapped: bool,
+    has_left_stick: bool,
+    has_dpad: bool,
+    has_face_buttons: bool,
+    name: String,
+}
+
+impl GamepadCapabilities {
+    fn from_gamepad(gp: &Gamepad) -> Self {
+        let name = gp.name().to_string();
+
+        let has_left_stick =
+            gp.axis_code(Axis::LeftStickX).is_some() && gp.axis_code(Axis::LeftStickY).is_some();
+
+        let has_dpad =
+            gp.button_code(Button::DPadUp).is_some() && gp.button_code(Button::DPadDown).is_some();
+
+        // South (A) is the minimum viable face button for a gamepad
+        let has_face_buttons = gp.button_code(Button::South).is_some();
+
+        Self {
+            is_sdl_mapped: gp.mapping_source() == MappingSource::SdlMappings,
+            has_left_stick,
+            has_dpad,
+            has_face_buttons,
+            name,
+        }
+    }
 }
 
 struct AxisState {
@@ -64,7 +96,7 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                             .gamepads()
                             .map(|(_, gp)| {
                                 let name = gp.name().to_string();
-                                let is_keyboard = is_likely_keyboard(&name);
+                                let is_keyboard = is_likely_keyboard(&gp);
                                 GamepadInfo {
                                     power_info: gp.power_info(),
                                     name,
@@ -87,12 +119,39 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
     })
 }
 
-fn is_likely_keyboard(name: &str) -> bool {
-    let lower_name = name.to_lowercase();
-    lower_name.contains("keyboard")
-        || lower_name.contains("keychron")
+fn is_likely_keyboard(gp: &Gamepad) -> bool {
+    let caps = GamepadCapabilities::from_gamepad(gp);
+    classify_as_keyboard(&caps)
+}
+
+fn classify_as_keyboard(caps: &GamepadCapabilities) -> bool {
+    // 1. If explicitly SDL mapped, it's a gamepad.
+    if caps.is_sdl_mapped {
+        return false;
+    }
+
+    // 2. If it lacks basic gamepad controls, it's likely a keyboard/other.
+    // A functional gamepad for our UI needs at least navigation (Stick OR DPad) AND a Select button (South/A).
+    let has_navigation = caps.has_left_stick || caps.has_dpad;
+    let functional_gamepad = has_navigation && caps.has_face_buttons;
+
+    if !functional_gamepad {
+        return true;
+    }
+
+    // 3. Fallback: If it looks like a gamepad but claims to be a keyboard via name
+    // This handles edge cases like "Gaming Keypads" that might want to be treated as keyboards visually?
+    // Or maybe we trust the capability check more.
+    // For now, let's keep the name check as a secondary filter for "Driver" mapped devices.
+    let lower_name = caps.name.to_lowercase();
+    if lower_name.contains("keyboard")
         || lower_name.contains("system control")
         || lower_name.contains("consumer control")
+    {
+        return true;
+    }
+
+    false
 }
 
 fn map_axis_value(value: f32) -> i8 {
@@ -160,17 +219,68 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_is_likely_keyboard() {
-        assert!(is_likely_keyboard("Generic Keyboard"));
-        assert!(is_likely_keyboard(
-            "Keychron Keychron Q3 Pro System Control"
-        ));
-        assert!(is_likely_keyboard("Some Consumer Control Device"));
-        assert!(is_likely_keyboard("My mechanical KEYBOARD"));
+    fn test_classify_as_keyboard_logic() {
+        // Case 1: Xbox Controller (SDL Mapped) -> Gamepad (False)
+        let xbox = GamepadCapabilities {
+            is_sdl_mapped: true,
+            has_left_stick: true,
+            has_dpad: true,
+            has_face_buttons: true,
+            name: "Xbox 360 Controller".to_string(),
+        };
+        assert!(!classify_as_keyboard(&xbox), "Xbox should be a gamepad");
 
-        assert!(!is_likely_keyboard("Xbox 360 Controller"));
-        assert!(!is_likely_keyboard("Sony PlayStation 5 DualSense"));
-        assert!(!is_likely_keyboard("Nintendo Switch Pro Controller"));
-        assert!(!is_likely_keyboard("Generic Gamepad"));
+        // Case 2: Keychron (Driver Mapped, No Stick/Dpad) -> Keyboard (True)
+        let keychron = GamepadCapabilities {
+            is_sdl_mapped: false,
+            has_left_stick: false,
+            has_dpad: false,
+            has_face_buttons: false, // Often only has 1-2 buttons mapped weirdly
+            name: "Keychron Q3 Pro System Control".to_string(),
+        };
+        assert!(
+            classify_as_keyboard(&keychron),
+            "Keychron should be a keyboard"
+        );
+
+        // Case 3: Generic Gamepad (Driver Mapped, but functional) -> Gamepad (False)
+        let generic_gamepad = GamepadCapabilities {
+            is_sdl_mapped: false, // Driver mapped
+            has_left_stick: true,
+            has_dpad: true,
+            has_face_buttons: true,
+            name: "Generic USB Gamepad".to_string(),
+        };
+        assert!(
+            !classify_as_keyboard(&generic_gamepad),
+            "Generic functional gamepad should be a gamepad"
+        );
+
+        // Case 4: Device with name "Keyboard" but FULL gamepad capabilities (Driver mapped)
+        // Current logic: If name contains "keyboard", we fallback to True.
+        let gaming_keyboard = GamepadCapabilities {
+            is_sdl_mapped: false,
+            has_left_stick: true,
+            has_dpad: false,
+            has_face_buttons: true,
+            name: "Wooting Keyboard".to_string(),
+        };
+        assert!(
+            classify_as_keyboard(&gaming_keyboard),
+            "Named keyboard should be detected as keyboard even if functional"
+        );
+
+        // Case 5: Broken/Partial Device (No Face buttons) -> Keyboard (True)
+        let broken_device = GamepadCapabilities {
+            is_sdl_mapped: false,
+            has_left_stick: true,
+            has_dpad: true,
+            has_face_buttons: false, // Missing 'A' button
+            name: "Unknown Device".to_string(),
+        };
+        assert!(
+            classify_as_keyboard(&broken_device),
+            "Device without face buttons is not a usable gamepad"
+        );
     }
 }
