@@ -8,7 +8,15 @@ use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const BATTERY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+const REPEAT_DELAY: Duration = Duration::from_millis(400);
+const REPEAT_INTERVAL: Duration = Duration::from_millis(100);
 const DEADZONE: f32 = 0.6;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum GamepadInput {
+    Press(Action),
+    Release(Action),
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GamepadInfo {
@@ -86,6 +94,7 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
 
                 // Store active vibration effects to keep them alive while playing
                 let mut active_effects: Vec<(gilrs::ff::Effect, Instant)> = Vec::new();
+                let mut current_repeater: Option<(Action, Instant, Instant)> = None;
 
                 loop {
                     // Clean up finished effects
@@ -105,8 +114,34 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                         }
 
                         let state = axis_states.entry(id).or_insert_with(AxisState::new);
-                        if let Some(action) = process_event(event, state) {
-                            let _ = output.send(GamepadEvent::Input(action)).await;
+                        if let Some(input) = process_event(event, state) {
+                            match input {
+                                GamepadInput::Press(action) => {
+                                    let _ = output.send(GamepadEvent::Input(action)).await;
+                                    if is_nav_action(action) {
+                                        current_repeater =
+                                            Some((action, Instant::now(), Instant::now()));
+                                    }
+                                }
+                                GamepadInput::Release(action) => {
+                                    if let Some((curr_action, _, _)) = current_repeater {
+                                        if curr_action == action {
+                                            current_repeater = None;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Handle Repeats
+                    if let Some((action, start_time, last_emit)) = &mut current_repeater {
+                        let now = Instant::now();
+                        if now.duration_since(*start_time) >= REPEAT_DELAY {
+                            if now.duration_since(*last_emit) >= REPEAT_INTERVAL {
+                                let _ = output.send(GamepadEvent::Input(*action)).await;
+                                *last_emit = now;
+                            }
                         }
                     }
 
@@ -241,27 +276,62 @@ fn map_axis_value(value: f32) -> i8 {
     }
 }
 
-fn process_event(event: EventType, state: &mut AxisState) -> Option<Action> {
+fn process_event(event: EventType, state: &mut AxisState) -> Option<GamepadInput> {
     match event {
-        EventType::ButtonPressed(Button::South, _) => Some(Action::Select),
-        EventType::ButtonPressed(Button::East, _) => Some(Action::Back),
-        EventType::ButtonPressed(Button::West, _) => Some(Action::ContextMenu),
-        EventType::ButtonPressed(Button::DPadUp, _) => Some(Action::Up),
-        EventType::ButtonPressed(Button::DPadDown, _) => Some(Action::Down),
-        EventType::ButtonPressed(Button::DPadLeft, _) => Some(Action::Left),
-        EventType::ButtonPressed(Button::DPadRight, _) => Some(Action::Right),
-        EventType::ButtonPressed(Button::LeftTrigger, _) => Some(Action::PrevCategory),
-        EventType::ButtonPressed(Button::RightTrigger, _) => Some(Action::NextCategory),
-        EventType::ButtonPressed(Button::LeftTrigger2, _) => Some(Action::PrevCategory),
-        EventType::ButtonPressed(Button::RightTrigger2, _) => Some(Action::NextCategory),
-        EventType::ButtonPressed(Button::Select, _) => Some(Action::ShowHelp),
+        EventType::ButtonPressed(Button::South, _) => Some(GamepadInput::Press(Action::Select)),
+        EventType::ButtonPressed(Button::East, _) => Some(GamepadInput::Press(Action::Back)),
+        EventType::ButtonPressed(Button::West, _) => Some(GamepadInput::Press(Action::ContextMenu)),
+        EventType::ButtonPressed(Button::DPadUp, _) => Some(GamepadInput::Press(Action::Up)),
+        EventType::ButtonPressed(Button::DPadDown, _) => Some(GamepadInput::Press(Action::Down)),
+        EventType::ButtonPressed(Button::DPadLeft, _) => Some(GamepadInput::Press(Action::Left)),
+        EventType::ButtonPressed(Button::DPadRight, _) => Some(GamepadInput::Press(Action::Right)),
+        EventType::ButtonPressed(Button::LeftTrigger, _) => {
+            Some(GamepadInput::Press(Action::PrevCategory))
+        }
+        EventType::ButtonPressed(Button::RightTrigger, _) => {
+            Some(GamepadInput::Press(Action::NextCategory))
+        }
+        EventType::ButtonPressed(Button::LeftTrigger2, _) => {
+            Some(GamepadInput::Press(Action::PrevCategory))
+        }
+        EventType::ButtonPressed(Button::RightTrigger2, _) => {
+            Some(GamepadInput::Press(Action::NextCategory))
+        }
+        EventType::ButtonPressed(Button::Select, _) => Some(GamepadInput::Press(Action::ShowHelp)),
+
+        // Released events for navigation buttons
+        EventType::ButtonReleased(Button::DPadUp, _) => Some(GamepadInput::Release(Action::Up)),
+        EventType::ButtonReleased(Button::DPadDown, _) => Some(GamepadInput::Release(Action::Down)),
+        EventType::ButtonReleased(Button::DPadLeft, _) => Some(GamepadInput::Release(Action::Left)),
+        EventType::ButtonReleased(Button::DPadRight, _) => {
+            Some(GamepadInput::Release(Action::Right))
+        }
+        EventType::ButtonReleased(Button::LeftTrigger, _) => {
+            Some(GamepadInput::Release(Action::PrevCategory))
+        }
+        EventType::ButtonReleased(Button::RightTrigger, _) => {
+            Some(GamepadInput::Release(Action::NextCategory))
+        }
+        EventType::ButtonReleased(Button::LeftTrigger2, _) => {
+            Some(GamepadInput::Release(Action::PrevCategory))
+        }
+        EventType::ButtonReleased(Button::RightTrigger2, _) => {
+            Some(GamepadInput::Release(Action::NextCategory))
+        }
+
         EventType::AxisChanged(gilrs::Axis::LeftStickX, value, _) => {
             let new_dir = map_axis_value(value);
             if new_dir != state.dir_x {
+                let old_dir = state.dir_x;
                 state.dir_x = new_dir;
                 match new_dir {
-                    -1 => Some(Action::Left),
-                    1 => Some(Action::Right),
+                    -1 => Some(GamepadInput::Press(Action::Left)),
+                    1 => Some(GamepadInput::Press(Action::Right)),
+                    0 => match old_dir {
+                        -1 => Some(GamepadInput::Release(Action::Left)),
+                        1 => Some(GamepadInput::Release(Action::Right)),
+                        _ => None,
+                    },
                     _ => None,
                 }
             } else {
@@ -271,10 +341,16 @@ fn process_event(event: EventType, state: &mut AxisState) -> Option<Action> {
         EventType::AxisChanged(gilrs::Axis::LeftStickY, value, _) => {
             let new_dir = map_axis_value(value);
             if new_dir != state.dir_y {
+                let old_dir = state.dir_y;
                 state.dir_y = new_dir;
                 match new_dir {
-                    -1 => Some(Action::Up),
-                    1 => Some(Action::Down),
+                    -1 => Some(GamepadInput::Press(Action::Up)),
+                    1 => Some(GamepadInput::Press(Action::Down)),
+                    0 => match old_dir {
+                        -1 => Some(GamepadInput::Release(Action::Up)),
+                        1 => Some(GamepadInput::Release(Action::Down)),
+                        _ => None,
+                    },
                     _ => None,
                 }
             } else {
@@ -283,6 +359,18 @@ fn process_event(event: EventType, state: &mut AxisState) -> Option<Action> {
         }
         _ => None,
     }
+}
+
+fn is_nav_action(action: Action) -> bool {
+    matches!(
+        action,
+        Action::Up
+            | Action::Down
+            | Action::Left
+            | Action::Right
+            | Action::NextCategory
+            | Action::PrevCategory
+    )
 }
 
 #[cfg(test)]
