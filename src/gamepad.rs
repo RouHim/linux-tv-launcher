@@ -64,7 +64,7 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                             .gamepads()
                             .map(|(_, gp)| {
                                 let name = gp.name().to_string();
-                                let is_keyboard = name.to_lowercase().contains("keyboard");
+                                let is_keyboard = is_likely_keyboard(&name);
                                 GamepadInfo {
                                     power_info: gp.power_info(),
                                     name,
@@ -85,6 +85,14 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
             },
         )
     })
+}
+
+fn is_likely_keyboard(name: &str) -> bool {
+    let lower_name = name.to_lowercase();
+    lower_name.contains("keyboard")
+        || lower_name.contains("keychron")
+        || lower_name.contains("system control")
+        || lower_name.contains("consumer control")
 }
 
 fn map_axis_value(value: f32) -> i8 {
@@ -144,5 +152,25 @@ fn process_event(event: EventType, state: &mut AxisState) -> Option<Action> {
             }
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_likely_keyboard() {
+        assert!(is_likely_keyboard("Generic Keyboard"));
+        assert!(is_likely_keyboard(
+            "Keychron Keychron Q3 Pro System Control"
+        ));
+        assert!(is_likely_keyboard("Some Consumer Control Device"));
+        assert!(is_likely_keyboard("My mechanical KEYBOARD"));
+
+        assert!(!is_likely_keyboard("Xbox 360 Controller"));
+        assert!(!is_likely_keyboard("Sony PlayStation 5 DualSense"));
+        assert!(!is_likely_keyboard("Nintendo Switch Pro Controller"));
+        assert!(!is_likely_keyboard("Generic Gamepad"));
     }
 }
