@@ -5,7 +5,7 @@ use iced::Subscription;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
-const BATTERY_CHECK_INTERVAL: Duration = Duration::from_mins(1  );
+const BATTERY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const DEADZONE: f32 = 0.6;
 
 #[derive(Debug, Clone, PartialEq)]

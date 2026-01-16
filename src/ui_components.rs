@@ -116,7 +116,13 @@ where
         PowerInfo::Charging(lvl) => {
             let color = COLOR_BATTERY_CHARGING;
             let base = battery_level_icon(lvl, color);
-            let icon = Stack::new().push(base).push(icons::bolt_icon(12.0, color));
+            let bolt = Container::new(icons::bolt_icon(12.0, color))
+                .width(18.0)
+                .height(18.0)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill);
+
+            let icon = Stack::new().push(base).push(bolt);
             Some((icon.into(), color))
         }
         PowerInfo::Discharging(lvl) => {
@@ -147,7 +153,7 @@ where
         16..=40 => icons::battery_quarter_icon(size, color),
         _ => icons::battery_empty_icon(size, color),
     };
-    icon.into()
+    icon
 }
 
 pub fn render_clock<'a, Message>(time: &DateTime<Local>) -> Element<'a, Message>
