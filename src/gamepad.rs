@@ -269,13 +269,7 @@ fn process_event(event: EventType, state: &mut AxisState) -> Option<Action> {
             }
         }
         EventType::AxisChanged(gilrs::Axis::LeftStickY, value, _) => {
-            let new_dir = if value <= -DEADZONE {
-                -1
-            } else if value >= DEADZONE {
-                1
-            } else {
-                0
-            };
+            let new_dir = map_axis_value(value);
             if new_dir != state.dir_y {
                 state.dir_y = new_dir;
                 match new_dir {
