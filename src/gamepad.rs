@@ -1,4 +1,5 @@
 use crate::input::Action;
+use gilrs::ff::{BaseEffect, BaseEffectType, EffectBuilder, Envelope, Replay, Ticks};
 use gilrs::{Axis, Button, Event, EventType, Gamepad, GamepadId, Gilrs, MappingSource, PowerInfo};
 use iced::futures::sink::SinkExt;
 use iced::Subscription;
@@ -83,9 +84,26 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                 // Force an initial battery check immediately
                 let mut current_battery_interval = Duration::ZERO;
 
+                // Store active vibration effects to keep them alive while playing
+                let mut active_effects: Vec<(gilrs::ff::Effect, Instant)> = Vec::new();
+
                 loop {
+                    // Clean up finished effects
+                    active_effects.retain(|(_, expires_at)| *expires_at > Instant::now());
+
                     // 1. Process all available events (non-blocking)
                     while let Some(Event { id, event, .. }) = gilrs.next_event() {
+                        match event {
+                            EventType::Connected => {
+                                trigger_connection_haptics(&mut gilrs, id, &mut active_effects);
+                            }
+                            EventType::Disconnected => {
+                                axis_states.remove(&id);
+                                continue;
+                            }
+                            _ => {}
+                        }
+
                         let state = axis_states.entry(id).or_insert_with(AxisState::new);
                         if let Some(action) = process_event(event, state) {
                             let _ = output.send(GamepadEvent::Input(action)).await;
@@ -119,6 +137,63 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
             },
         )
     })
+}
+
+fn trigger_connection_haptics(
+    gilrs: &mut Gilrs,
+    connected_id: GamepadId,
+    active_effects: &mut Vec<(gilrs::ff::Effect, Instant)>,
+) {
+    let gamepad = gilrs.gamepad(connected_id);
+    if is_likely_keyboard(&gamepad) {
+        return;
+    }
+
+    // Determine player number based on sorted IDs of valid gamepads
+    let mut gamepads: Vec<_> = gilrs
+        .gamepads()
+        .filter(|(_, gp)| !is_likely_keyboard(gp))
+        .map(|(id, _)| id)
+        .collect();
+    gamepads.sort_by_key(|id| usize::from(*id));
+
+    if let Some(idx) = gamepads.iter().position(|&x| x == connected_id) {
+        let player_number = idx + 1;
+
+        // Vibrate 'player_number' times
+        // Pulse 200ms, Interval 400ms
+
+        for i in 0..player_number {
+            let start_delay_ms = (i as u64) * 400;
+            let start_delay = Ticks::from_ms(start_delay_ms as u32);
+            let duration = Ticks::from_ms(200);
+
+            // Attempt to create and play effect
+            // We use a Strong rumble for notification
+            let effect_result = EffectBuilder::new()
+                .add_effect(BaseEffect {
+                    kind: BaseEffectType::Strong { magnitude: 0xC000 }, // ~75% strength
+                    scheduling: Replay {
+                        play_for: duration,
+                        with_delay: start_delay,
+                        ..Default::default()
+                    },
+                    envelope: Envelope::default(),
+                })
+                .gamepads(&[connected_id])
+                .finish(gilrs);
+
+            if let Ok(effect) = effect_result {
+                if effect.play().is_ok() {
+                    let expires_at = Instant::now()
+                        + Duration::from_millis(start_delay_ms)
+                        + Duration::from_millis(200)
+                        + Duration::from_millis(100);
+                    active_effects.push((effect, expires_at));
+                }
+            }
+        }
+    }
 }
 
 fn is_likely_keyboard(gp: &Gamepad) -> bool {
@@ -195,9 +270,9 @@ fn process_event(event: EventType, state: &mut AxisState) -> Option<Action> {
         }
         EventType::AxisChanged(gilrs::Axis::LeftStickY, value, _) => {
             let new_dir = if value <= -DEADZONE {
-                1
-            } else if value >= DEADZONE {
                 -1
+            } else if value >= DEADZONE {
+                1
             } else {
                 0
             };
