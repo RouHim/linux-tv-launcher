@@ -71,7 +71,11 @@ where
     for info in infos.iter().take(4) {
         if let Some((battery_icon, _color)) = get_battery_visuals(info.power_info) {
             // Gamepad icon
-            let gp_icon = icons::gamepad_icon(22.0, Color::WHITE);
+            let gp_icon = if info.is_keyboard {
+                icons::keyboard_icon(22.0, Color::WHITE)
+            } else {
+                icons::gamepad_icon(22.0, Color::WHITE)
+            };
 
             let content = Row::new()
                 .spacing(8)

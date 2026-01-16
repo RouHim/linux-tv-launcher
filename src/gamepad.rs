@@ -12,6 +12,7 @@ const DEADZONE: f32 = 0.6;
 pub struct GamepadInfo {
     pub power_info: PowerInfo,
     pub name: String,
+    pub is_keyboard: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -61,9 +62,14 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                     if last_battery_check.elapsed() >= current_battery_interval {
                         let batteries = gilrs
                             .gamepads()
-                            .map(|(_, gp)| GamepadInfo {
-                                power_info: gp.power_info(),
-                                name: gp.name().to_string(),
+                            .map(|(_, gp)| {
+                                let name = gp.name().to_string();
+                                let is_keyboard = name.to_lowercase().contains("keyboard");
+                                GamepadInfo {
+                                    power_info: gp.power_info(),
+                                    name,
+                                    is_keyboard,
+                                }
                             })
                             .collect();
 

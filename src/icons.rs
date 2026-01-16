@@ -34,6 +34,10 @@ pub fn gamepad_icon<'a, Message: 'a>(size: f32, color: Color) -> Element<'a, Mes
     fontawesome::gamepad().size(size).color(color).into()
 }
 
+pub fn keyboard_icon<'a, Message: 'a>(size: f32, color: Color) -> Element<'a, Message> {
+    fontawesome::keyboard().size(size).color(color).into()
+}
+
 pub fn battery_full_icon<'a, Message: 'a>(size: f32, color: Color) -> Element<'a, Message> {
     fontawesome::battery_full().size(size).color(color).into()
 }
