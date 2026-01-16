@@ -100,7 +100,10 @@ fn parse_steam_manifest_file(path: &Path) -> Option<AppEntry> {
     }
 
     let exec = format!("steam -applaunch {}", manifest.appid);
-    Some(AppEntry::new(manifest.name, exec, None))
+    Some(
+        AppEntry::new(manifest.name, exec, None)
+            .with_launch_key(format!("steam:{}", manifest.appid)),
+    )
 }
 
 fn is_ignored_app(name: &str, id: &str) -> bool {
@@ -171,7 +174,8 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                         let exec = heroic_exec(&game.store, &game.app_name);
                         games.push(
                             AppEntry::new(game.title, exec, game.art_cover)
-                                .with_executable(game.executable),
+                                .with_executable(game.executable)
+                                .with_launch_key(game.launch_key.clone()),
                         );
                     }
                 }
@@ -195,7 +199,8 @@ fn scan_heroic_games() -> Vec<AppEntry> {
                         let exec = heroic_exec(&game.store, &game.app_name);
                         games.push(
                             AppEntry::new(game.title, exec, game.art_cover)
-                                .with_executable(game.executable),
+                                .with_executable(game.executable)
+                                .with_launch_key(game.launch_key.clone()),
                         );
                     }
                 }
@@ -246,6 +251,7 @@ struct HeroicGame {
     store: String,
     art_cover: Option<String>,
     executable: Option<String>,
+    launch_key: String,
 }
 
 fn parse_heroic_library_json(contents: &str, store_hint: &str) -> Vec<HeroicGame> {
@@ -363,6 +369,14 @@ fn heroic_game_from_object(
         return None;
     }
 
+    let store = store.trim();
+
+    let launch_key = if store.is_empty() {
+        format!("heroic:{}", app_name)
+    } else {
+        format!("heroic:{}:{}", store, app_name)
+    };
+
     // Extract cover art URL - prefer art_cover, fall back to art_square
     let art_cover = obj
         .get("art_cover")
@@ -388,6 +402,7 @@ fn heroic_game_from_object(
         store: store.to_string(),
         art_cover,
         executable,
+        launch_key,
     })
 }
 
@@ -633,6 +648,7 @@ mod tests {
         assert_eq!(games[0].app_name, "testAppId");
         assert_eq!(games[0].title, "Robot Arena 2");
         assert_eq!(games[0].store, "sideload");
+        assert_eq!(games[0].launch_key, "heroic:sideload:testAppId");
         assert_eq!(
             games[0].art_cover,
             Some("https://example.com/cover.png".to_string())

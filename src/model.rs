@@ -12,8 +12,8 @@ pub enum SystemIcon {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Category {
-    Apps,
     Games,
+    Apps,
     System,
 }
 
@@ -28,17 +28,17 @@ impl Category {
 
     pub fn next(self) -> Self {
         match self {
-            Category::Apps => Category::Games,
-            Category::Games => Category::System,
-            Category::System => Category::Apps,
+            Category::Games => Category::Apps,
+            Category::Apps => Category::System,
+            Category::System => Category::Games,
         }
     }
 
     pub fn prev(self) -> Self {
         match self {
-            Category::Apps => Category::System,
-            Category::Games => Category::Apps,
-            Category::System => Category::Games,
+            Category::Games => Category::System,
+            Category::Apps => Category::Games,
+            Category::System => Category::Apps,
         }
     }
 }
@@ -62,6 +62,10 @@ pub struct LauncherItem {
     pub action: LauncherAction,
     pub source_image_url: Option<String>,
     pub game_executable: Option<String>,
+    /// Unique key for launch history tracking
+    pub launch_key: Option<String>,
+    /// Unix timestamp of when this item was last started via the launcher
+    pub last_started: Option<i64>,
 }
 
 impl LauncherItem {
@@ -84,6 +88,8 @@ impl LauncherItem {
             action: LauncherAction::Launch { exec: entry.exec },
             source_image_url,
             game_executable: entry.game_executable,
+            launch_key: entry.launch_key,
+            last_started: entry.last_started,
         }
     }
 
@@ -96,6 +102,8 @@ impl LauncherItem {
             action: LauncherAction::SystemUpdate,
             source_image_url: None,
             game_executable: None,
+            launch_key: None,
+            last_started: None,
         }
     }
 
@@ -108,6 +116,8 @@ impl LauncherItem {
             action: LauncherAction::SystemInfo,
             source_image_url: None,
             game_executable: None,
+            launch_key: None,
+            last_started: None,
         }
     }
 
@@ -120,6 +130,8 @@ impl LauncherItem {
             action: LauncherAction::Shutdown,
             source_image_url: None,
             game_executable: None,
+            launch_key: None,
+            last_started: None,
         }
     }
 
@@ -132,6 +144,8 @@ impl LauncherItem {
             action: LauncherAction::Suspend,
             source_image_url: None,
             game_executable: None,
+            launch_key: None,
+            last_started: None,
         }
     }
 
@@ -144,6 +158,8 @@ impl LauncherItem {
             action: LauncherAction::Exit,
             source_image_url: None,
             game_executable: None,
+            launch_key: None,
+            last_started: None,
         }
     }
 }
@@ -154,8 +170,14 @@ pub struct AppEntry {
     pub name: String,
     pub exec: String,
     pub icon: Option<String>,
+    /// Unique key for launch history tracking
+    #[serde(default)]
+    pub launch_key: Option<String>,
     #[serde(default)]
     pub game_executable: Option<String>,
+    /// Unix timestamp of when this app was last started via the launcher
+    #[serde(default)]
+    pub last_started: Option<i64>,
 }
 
 impl AppEntry {
@@ -165,12 +187,19 @@ impl AppEntry {
             name,
             exec,
             icon,
+            launch_key: None,
             game_executable: None,
+            last_started: None,
         }
     }
 
     pub fn with_executable(mut self, executable: Option<String>) -> Self {
         self.game_executable = executable;
+        self
+    }
+
+    pub fn with_launch_key(mut self, launch_key: String) -> Self {
+        self.launch_key = Some(launch_key);
         self
     }
 }
@@ -194,10 +223,12 @@ mod tests {
 
     #[test]
     fn test_launcher_item_from_app_entry() {
-        let entry = AppEntry::new("Game".to_string(), "steam -applaunch 570".to_string(), None);
+        let entry = AppEntry::new("Game".to_string(), "steam -applaunch 570".to_string(), None)
+            .with_launch_key("steam:570".to_string());
         let item = LauncherItem::from_app_entry(entry);
 
         assert_eq!(item.name, "Game");
+        assert_eq!(item.launch_key.as_deref(), Some("steam:570"));
         match item.action {
             LauncherAction::Launch { .. } => {}
             _ => panic!("expected launch action"),

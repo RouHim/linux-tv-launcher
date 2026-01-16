@@ -107,8 +107,21 @@ impl CategoryList {
         self.version = self.version.wrapping_add(1);
     }
 
+    /// Sorts items by last_started timestamp (most recent first).
+    /// Items that have never been launched are sorted alphabetically at the end.
     fn sort_items(&self, items: &mut [LauncherItem]) {
-        items.sort_by(|a, b| a.name.cmp(&b.name));
+        items.sort_by(|a, b| {
+            match (a.last_started, b.last_started) {
+                // Both have timestamps: sort by most recent first (descending)
+                (Some(a_ts), Some(b_ts)) => b_ts.cmp(&a_ts),
+                // Only a has timestamp: a comes first
+                (Some(_), None) => std::cmp::Ordering::Less,
+                // Only b has timestamp: b comes first
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                // Neither has timestamp: alphabetical fallback (case-insensitive)
+                (None, None) => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            }
+        });
     }
 
     pub fn sort_inplace(&mut self) {
@@ -132,6 +145,22 @@ mod tests {
             action: LauncherAction::Exit,
             source_image_url: None,
             game_executable: None,
+            launch_key: None,
+            last_started: None,
+        }
+    }
+
+    fn item_with_timestamp(name: &str, timestamp: i64) -> LauncherItem {
+        LauncherItem {
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            icon: None,
+            system_icon: None,
+            action: LauncherAction::Exit,
+            source_image_url: None,
+            game_executable: None,
+            launch_key: None,
+            last_started: Some(timestamp),
         }
     }
 
@@ -260,9 +289,44 @@ mod tests {
     }
 
     #[test]
-    fn test_sort_inplace() {
+    fn test_sort_inplace_alphabetical_fallback() {
+        // Items without timestamps should sort alphabetically
         let mut list = CategoryList::new(vec![item("C"), item("A"), item("B")]);
         list.sort_inplace();
         assert_eq!(names(&list), vec!["A", "B", "C"]);
+    }
+
+    #[test]
+    fn test_sort_by_last_started() {
+        // Items with timestamps should sort by most recent first
+        let mut list = CategoryList::new(vec![
+            item_with_timestamp("Old", 1000),
+            item_with_timestamp("Newest", 3000),
+            item_with_timestamp("Middle", 2000),
+        ]);
+        list.sort_inplace();
+        assert_eq!(names(&list), vec!["Newest", "Middle", "Old"]);
+    }
+
+    #[test]
+    fn test_sort_mixed_timestamps_and_no_timestamps() {
+        // Items with timestamps come first (sorted by recency),
+        // then items without timestamps (sorted alphabetically)
+        let mut list = CategoryList::new(vec![
+            item("Zebra"), // no timestamp
+            item_with_timestamp("Game1", 1000),
+            item("Apple"), // no timestamp
+            item_with_timestamp("Game2", 2000),
+        ]);
+        list.sort_inplace();
+        assert_eq!(names(&list), vec!["Game2", "Game1", "Apple", "Zebra"]);
+    }
+
+    #[test]
+    fn test_sort_case_insensitive_alphabetical() {
+        // Alphabetical fallback should be case-insensitive
+        let mut list = CategoryList::new(vec![item("zebra"), item("Apple"), item("banana")]);
+        list.sort_inplace();
+        assert_eq!(names(&list), vec!["Apple", "banana", "zebra"]);
     }
 }

@@ -31,7 +31,7 @@ use crate::model::{AppEntry, Category, LauncherAction, LauncherItem};
 use crate::osk::OskManager;
 use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
-use crate::storage::{config_path, load_config, save_config, AppConfig};
+use crate::storage::{load_config, save_config, AppConfig};
 use crate::sys_utils::restart_process;
 use crate::system_info::{fetch_system_info, GamingSystemInfo};
 use crate::system_update::system_update_stream;
@@ -61,10 +61,8 @@ pub struct Launcher {
     default_icon_handle: Option<iced::widget::svg::Handle>,
     status_message: Option<String>,
 
-    config_path: Option<String>,
     apps_loaded: bool,
     games_loaded: bool,
-    // API Key should be loaded from config ideally, but hardcoding for this user session as requested
     sgdb_client: SteamGridDbClient,
     searxng_client: SearxngClient,
     image_cache: Option<ImageCache>,
@@ -81,12 +79,13 @@ pub struct Launcher {
     api_key: Option<String>,
     current_time: DateTime<Local>,
     gamepad_infos: Vec<GamepadInfo>,
+    /// Stores launch timestamps for games (keyed by game identifier)
+    game_launch_history: std::collections::HashMap<String, i64>,
 }
 
 impl Launcher {
     pub fn new() -> (Self, Task<Message>) {
         let default_icon = get_default_icon().map(iced::widget::svg::Handle::from_memory);
-        let config_path = config_path().ok().map(|path| path.display().to_string());
 
         // Resolve API Key:
         // 1. Compile-time env (CI/Production)
@@ -110,11 +109,10 @@ impl Launcher {
                 LauncherItem::system_info(),
                 LauncherItem::exit(),
             ]),
-            category: Category::Apps,
+            category: Category::Games,
             default_icon_handle: default_icon,
             status_message: None,
 
-            config_path,
             apps_loaded: false,
             games_loaded: false,
             sgdb_client,
@@ -131,6 +129,7 @@ impl Launcher {
             api_key: env_key,
             current_time: Local::now(),
             gamepad_infos: Vec::new(),
+            game_launch_history: std::collections::HashMap::new(),
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
@@ -171,11 +170,22 @@ impl Launcher {
                         let items: Vec<LauncherItem> = config
                             .apps
                             .into_iter()
-                            .map(LauncherItem::from_app_entry)
+                            .map(|entry| {
+                                let mut item = LauncherItem::from_app_entry(entry);
+                                if item.launch_key.is_none() {
+                                    if let LauncherAction::Launch { exec } = &item.action {
+                                        item.launch_key = Some(format!("desktop:{}", exec));
+                                    }
+                                }
+                                item
+                            })
                             .collect();
                         self.apps.set_items(items);
                         self.apps.sort_inplace();
                         self.status_message = None;
+
+                        // Store game launch history for later use when games are loaded
+                        self.game_launch_history = config.game_launch_history;
 
                         // If no env key was found, try using the one from config
                         if self.api_key.is_none() {
@@ -204,7 +214,16 @@ impl Launcher {
             Message::GamesLoaded(games) => {
                 let items: Vec<LauncherItem> = games
                     .into_iter()
-                    .map(LauncherItem::from_app_entry)
+                    .map(|entry| {
+                        let mut item = LauncherItem::from_app_entry(entry);
+                        // Lookup launch history using game identifier
+                        if let Some(launch_key) = item.launch_key.as_ref() {
+                            if let Some(&timestamp) = self.game_launch_history.get(launch_key) {
+                                item.last_started = Some(timestamp);
+                            }
+                        }
+                        item
+                    })
                     .collect();
                 self.games.set_items(items);
                 self.games.sort_inplace();
@@ -323,7 +342,8 @@ impl Launcher {
                         selected_app.name.clone(),
                         selected_app.exec.clone(),
                         icon_path,
-                    );
+                    )
+                    .with_launch_key(format!("desktop:{}", selected_app.exec));
 
                     let new_item = LauncherItem::from_app_entry(new_entry);
 
@@ -535,15 +555,14 @@ impl Launcher {
             });
 
         let status_bar_row = iced::widget::Row::new()
-            .spacing(24)
             .align_y(iced::Alignment::Center)
             .push(render_gamepad_infos(&self.gamepad_infos))
+            .push(iced::widget::Space::new().width(Length::Fill))
             .push(render_clock(&self.current_time));
 
         let status_bar = Container::new(status_bar_row)
             .padding(30)
-            .width(Length::Fill)
-            .align_x(iced::alignment::Horizontal::Right);
+            .width(Length::Fill);
 
         let stack = Stack::new().push(main_content).push(status_bar).into();
 
@@ -987,6 +1006,9 @@ impl Launcher {
 
         match &item.action {
             LauncherAction::Launch { exec } => {
+                // Record launch timestamp
+                self.record_launch_timestamp(&item);
+
                 self.launch_app(exec, &item.name, item.game_executable.as_ref())
             }
             LauncherAction::SystemUpdate => self.update(Message::StartSystemUpdate),
@@ -994,6 +1016,44 @@ impl Launcher {
             LauncherAction::Shutdown => self.system_command("systemctl", &["poweroff"], "shutdown"),
             LauncherAction::Suspend => self.system_command("systemctl", &["suspend"], "suspend"),
             LauncherAction::Exit => self.exit_app(),
+        }
+    }
+
+    /// Records the current timestamp for the launched item, updates the list, re-sorts, and persists
+    fn record_launch_timestamp(&mut self, item: &LauncherItem) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+
+        let item_id = item.id;
+        let item_name = item.name.clone();
+
+        match self.category {
+            Category::Apps => {
+                self.apps.update_item_by_id(item_id, |i| {
+                    i.last_started = Some(now);
+                });
+                self.apps.sort_inplace();
+                // Reset selection to 0 so the just-launched item stays selected at top
+                self.apps.selected_index = 0;
+                self.save_apps_config("Launched", "launching", &item_name);
+            }
+            Category::Games => {
+                self.games.update_item_by_id(item_id, |i| {
+                    i.last_started = Some(now);
+                });
+                self.games.sort_inplace();
+                self.games.selected_index = 0;
+                // Update game launch history and persist
+                if let Some(launch_key) = item.launch_key.as_ref() {
+                    self.game_launch_history.insert(launch_key.clone(), now);
+                }
+                self.save_apps_config("Launched", "launching", &item_name);
+            }
+            Category::System => {
+                // System items don't need launch tracking
+            }
         }
     }
 
@@ -1084,8 +1144,8 @@ impl Launcher {
         );
 
         Column::new()
-            .push(apps_row)
             .push(games_row)
+            .push(apps_row)
             .push(system_row)
             .spacing(30)
             .into()
@@ -1102,8 +1162,11 @@ impl Launcher {
                     name: item.name.clone(),
                     exec: exec.clone(),
                     icon: item.icon.clone(),
+                    launch_key: item.launch_key.clone(),
                     game_executable: item.game_executable.clone(),
+                    last_started: item.last_started,
                 }),
+
                 _ => None,
             })
             .collect();
@@ -1111,6 +1174,7 @@ impl Launcher {
         let config = AppConfig {
             apps: apps_to_save,
             steamgriddb_api_key: self.api_key.clone(),
+            game_launch_history: self.game_launch_history.clone(),
         };
 
         if let Err(err) = save_config(&config) {
@@ -1122,11 +1186,7 @@ impl Launcher {
     }
 
     fn apps_empty_message(&self) -> String {
-        if let Some(path) = &self.config_path {
-            format!("No apps configured. Edit {}.", path)
-        } else {
-            "No apps configured.".to_string()
-        }
+        "No apps configured. Press Y or + to add an app.".to_string()
     }
 }
 
@@ -1156,8 +1216,8 @@ mod tests {
         let _ = launcher.handle_navigation(Action::Right);
         assert_eq!(launcher.apps.selected_index, 1);
 
-        // Switch to Games (Down)
-        let _ = launcher.handle_navigation(Action::Down);
+        // Switch to Games (Up)
+        let _ = launcher.handle_navigation(Action::Up);
         assert_eq!(launcher.category, Category::Games);
         assert_eq!(launcher.games.selected_index, 0); // Default
 
@@ -1165,8 +1225,8 @@ mod tests {
         let _ = launcher.handle_navigation(Action::Right);
         assert_eq!(launcher.games.selected_index, 1);
 
-        // Switch back to Apps (Up)
-        let _ = launcher.handle_navigation(Action::Up);
+        // Switch back to Apps (Down)
+        let _ = launcher.handle_navigation(Action::Down);
         assert_eq!(launcher.category, Category::Apps);
         assert_eq!(launcher.apps.selected_index, 1); // REMEMBERED!
     }
