@@ -22,7 +22,7 @@ use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
 use crate::focus_manager::{monitor_app_process, MonitorTarget};
 use crate::game_image_fetcher::GameImageFetcher;
 use crate::game_sources::scan_games;
-use crate::gamepad::gamepad_subscription;
+use crate::gamepad::{gamepad_subscription, GamepadEvent, GamepadInfo};
 use crate::image_cache::ImageCache;
 use crate::input::Action;
 use crate::launcher::{launch_app, resolve_monitor_target};
@@ -37,7 +37,7 @@ use crate::system_info::{fetch_system_info, GamingSystemInfo};
 use crate::system_update::system_update_stream;
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
-use crate::ui_components::render_clock;
+use crate::ui_components::{render_clock, render_gamepad_infos};
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
 };
@@ -80,6 +80,7 @@ pub struct Launcher {
     current_exe: Option<PathBuf>,
     api_key: Option<String>,
     current_time: DateTime<Local>,
+    gamepad_infos: Vec<GamepadInfo>,
 }
 
 impl Launcher {
@@ -129,6 +130,7 @@ impl Launcher {
             current_exe,
             api_key: env_key,
             current_time: Local::now(),
+            gamepad_infos: Vec::new(),
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
@@ -267,6 +269,10 @@ impl Launcher {
             }
             Message::Tick(time) => {
                 self.current_time = time;
+                Task::none()
+            }
+            Message::GamepadBatteryUpdate(infos) => {
+                self.gamepad_infos = infos;
                 Task::none()
             }
             Message::WindowResized(width, _height) => {
@@ -528,9 +534,18 @@ impl Launcher {
                 ..Default::default()
             });
 
-        let clock = render_clock(&self.current_time);
+        let status_bar_row = iced::widget::Row::new()
+            .spacing(24)
+            .align_y(iced::Alignment::Center)
+            .push(render_gamepad_infos(&self.gamepad_infos))
+            .push(render_clock(&self.current_time));
 
-        let stack = Stack::new().push(main_content).push(clock).into();
+        let status_bar = Container::new(status_bar_row)
+            .padding(30)
+            .width(Length::Fill)
+            .align_x(iced::alignment::Horizontal::Right);
+
+        let stack = Stack::new().push(main_content).push(status_bar).into();
 
         self.render_with_modal(stack)
     }
@@ -560,7 +575,10 @@ impl Launcher {
             return Subscription::none();
         }
 
-        let gamepad = gamepad_subscription().map(Message::Input);
+        let gamepad = gamepad_subscription().map(|event| match event {
+            GamepadEvent::Input(action) => Message::Input(action),
+            GamepadEvent::Battery(batteries) => Message::GamepadBatteryUpdate(batteries),
+        });
 
         let window_events = iced::event::listen_with(|event, _status, window_id| match event {
             Event::Window(iced::window::Event::Opened { .. }) => {

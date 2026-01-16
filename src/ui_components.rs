@@ -1,9 +1,15 @@
 use chrono::{DateTime, Local};
-use iced::widget::{Container, Image, Svg, Text};
-use iced::{Color, ContentFit, Element, Length};
+use gilrs::PowerInfo;
+use iced::widget::{Container, Image, Row, Stack, Svg, Text};
+use iced::{Alignment, Color, ContentFit, Element, Length};
 use std::path::{Path, PathBuf};
 
-use crate::ui_theme::{COLOR_TEXT_BRIGHT, SANSATION};
+use crate::gamepad::GamepadInfo;
+use crate::icons;
+use crate::ui_theme::{
+    COLOR_BATTERY_CHARGING, COLOR_BATTERY_GOOD, COLOR_BATTERY_LOW, COLOR_BATTERY_MODERATE,
+    COLOR_TEXT_BRIGHT, SANSATION,
+};
 
 fn is_svg(path: &Path) -> bool {
     path.extension()
@@ -56,18 +62,108 @@ where
         .into()
 }
 
+pub fn render_gamepad_infos<'a, Message>(infos: &'a [GamepadInfo]) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    let mut row = Row::new().spacing(24).align_y(Alignment::Center);
+
+    for info in infos.iter().take(4) {
+        // Gamepad icon
+        let gp_icon = if info.is_keyboard {
+            icons::keyboard_icon(22.0, Color::WHITE)
+        } else {
+            icons::gamepad_icon(22.0, Color::WHITE)
+        };
+
+        let mut content = Row::new()
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .push(gp_icon);
+
+        if let Some((battery_icon, _color)) = get_battery_visuals(info.power_info) {
+            content = content.push(battery_icon);
+        }
+
+        let tooltip = iced::widget::Tooltip::new(
+            content,
+            Text::new(&info.name).size(14),
+            iced::widget::tooltip::Position::Bottom,
+        )
+        .style(|_theme| iced::widget::container::Style {
+            background: Some(iced::Color::from_rgb8(0, 0, 0).into()),
+            text_color: Some(iced::Color::WHITE),
+            ..Default::default()
+        });
+
+        row = row.push(tooltip);
+    }
+
+    row.into()
+}
+
+fn get_battery_visuals<'a, Message>(power: PowerInfo) -> Option<(Element<'a, Message>, Color)>
+where
+    Message: 'a,
+{
+    match power {
+        PowerInfo::Charged => {
+            let color = COLOR_BATTERY_GOOD;
+            let icon = Stack::new()
+                .push(icons::battery_full_icon(18.0, color))
+                .push(icons::bolt_icon(12.0, color));
+            Some((icon.into(), color))
+        }
+        PowerInfo::Charging(lvl) => {
+            let color = COLOR_BATTERY_CHARGING;
+            let base = battery_level_icon(lvl, color);
+            let bolt = Container::new(icons::bolt_icon(12.0, color))
+                .width(18.0)
+                .height(18.0)
+                .center_x(Length::Fill)
+                .center_y(Length::Fill);
+
+            let icon = Stack::new().push(base).push(bolt);
+            Some((icon.into(), color))
+        }
+        PowerInfo::Discharging(lvl) => {
+            let color = if lvl > 60 {
+                COLOR_BATTERY_GOOD
+            } else if lvl > 30 {
+                COLOR_BATTERY_MODERATE
+            } else {
+                COLOR_BATTERY_LOW
+            };
+            let icon = battery_level_icon(lvl, color);
+            Some((icon, color))
+        }
+        PowerInfo::Wired => Some((icons::plug_icon(18.0, Color::WHITE), Color::WHITE)),
+        PowerInfo::Unknown => None,
+    }
+}
+
+fn battery_level_icon<'a, Message>(lvl: u8, color: Color) -> Element<'a, Message>
+where
+    Message: 'a,
+{
+    let size = 18.0;
+    let icon = match lvl {
+        91..=u8::MAX => icons::battery_full_icon(size, color),
+        61..=90 => icons::battery_three_quarters_icon(size, color),
+        41..=60 => icons::battery_half_icon(size, color),
+        16..=40 => icons::battery_quarter_icon(size, color),
+        _ => icons::battery_empty_icon(size, color),
+    };
+    icon
+}
+
 pub fn render_clock<'a, Message>(time: &DateTime<Local>) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    Container::new(
-        Text::new(time.format("%H:%M").to_string())
-            .font(SANSATION)
-            .size(32)
-            .color(COLOR_TEXT_BRIGHT),
-    )
-    .padding(30)
-    .width(Length::Fill)
-    .align_x(iced::alignment::Horizontal::Right)
-    .into()
+    Text::new(time.format("%H:%M").to_string())
+        .font(SANSATION)
+        .size(32)
+        .color(COLOR_TEXT_BRIGHT)
+        .into()
 }
