@@ -4,7 +4,7 @@ use iced::widget::{Container, Image, Row, Stack, Svg, Text};
 use iced::{Alignment, Color, ContentFit, Element, Length};
 use std::path::{Path, PathBuf};
 
-use crate::gamepad::GamepadBattery;
+use crate::gamepad::GamepadInfo;
 use crate::icons;
 use crate::ui_theme::{
     COLOR_BATTERY_CHARGING, COLOR_BATTERY_GOOD, COLOR_BATTERY_LOW, COLOR_BATTERY_MODERATE,
@@ -62,24 +62,35 @@ where
         .into()
 }
 
-pub fn render_gamepad_batteries<'a, Message>(batteries: &[GamepadBattery]) -> Element<'a, Message>
+pub fn render_gamepad_infos<'a, Message>(infos: &'a [GamepadInfo]) -> Element<'a, Message>
 where
     Message: 'a,
 {
     let mut row = Row::new().spacing(24).align_y(Alignment::Center);
 
-    for battery in batteries.iter().take(4) {
-        if let Some((battery_icon, _color)) = get_battery_visuals(battery.power_info) {
+    for info in infos.iter().take(4) {
+        if let Some((battery_icon, _color)) = get_battery_visuals(info.power_info) {
             // Gamepad icon
             let gp_icon = icons::gamepad_icon(22.0, Color::WHITE);
 
-            row = row.push(
-                Row::new()
-                    .spacing(8)
-                    .align_y(Alignment::Center)
-                    .push(gp_icon)
-                    .push(battery_icon),
-            );
+            let content = Row::new()
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .push(gp_icon)
+                .push(battery_icon);
+
+            let tooltip = iced::widget::Tooltip::new(
+                content,
+                Text::new(&info.name).size(14),
+                iced::widget::tooltip::Position::Bottom,
+            )
+            .style(|_theme| iced::widget::container::Style {
+                background: Some(iced::Color::from_rgb8(0, 0, 0).into()),
+                text_color: Some(iced::Color::WHITE),
+                ..Default::default()
+            });
+
+            row = row.push(tooltip);
         }
     }
 

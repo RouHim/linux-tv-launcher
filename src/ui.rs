@@ -22,7 +22,7 @@ use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
 use crate::focus_manager::{monitor_app_process, MonitorTarget};
 use crate::game_image_fetcher::GameImageFetcher;
 use crate::game_sources::scan_games;
-use crate::gamepad::{gamepad_subscription, GamepadBattery, GamepadEvent};
+use crate::gamepad::{gamepad_subscription, GamepadEvent, GamepadInfo};
 use crate::image_cache::ImageCache;
 use crate::input::Action;
 use crate::launcher::{launch_app, resolve_monitor_target};
@@ -37,7 +37,7 @@ use crate::system_info::{fetch_system_info, GamingSystemInfo};
 use crate::system_update::system_update_stream;
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
-use crate::ui_components::{render_clock, render_gamepad_batteries};
+use crate::ui_components::{render_clock, render_gamepad_infos};
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
 };
@@ -80,7 +80,7 @@ pub struct Launcher {
     current_exe: Option<PathBuf>,
     api_key: Option<String>,
     current_time: DateTime<Local>,
-    gamepad_batteries: Vec<GamepadBattery>,
+    gamepad_infos: Vec<GamepadInfo>,
 }
 
 impl Launcher {
@@ -130,7 +130,7 @@ impl Launcher {
             current_exe,
             api_key: env_key,
             current_time: Local::now(),
-            gamepad_batteries: Vec::new(),
+            gamepad_infos: Vec::new(),
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
@@ -271,8 +271,8 @@ impl Launcher {
                 self.current_time = time;
                 Task::none()
             }
-            Message::GamepadBatteryUpdate(batteries) => {
-                self.gamepad_batteries = batteries;
+            Message::GamepadBatteryUpdate(infos) => {
+                self.gamepad_infos = infos;
                 Task::none()
             }
             Message::WindowResized(width, _height) => {
@@ -537,7 +537,7 @@ impl Launcher {
         let status_bar_row = iced::widget::Row::new()
             .spacing(24)
             .align_y(iced::Alignment::Center)
-            .push(render_gamepad_batteries(&self.gamepad_batteries))
+            .push(render_gamepad_infos(&self.gamepad_infos))
             .push(render_clock(&self.current_time));
 
         let status_bar = Container::new(status_bar_row)

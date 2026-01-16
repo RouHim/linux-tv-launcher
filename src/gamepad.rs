@@ -9,14 +9,15 @@ const BATTERY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 const DEADZONE: f32 = 0.6;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct GamepadBattery {
+pub struct GamepadInfo {
     pub power_info: PowerInfo,
+    pub name: String,
 }
 
 #[derive(Debug, Clone)]
 pub enum GamepadEvent {
     Input(Action),
-    Battery(Vec<GamepadBattery>),
+    Battery(Vec<GamepadInfo>),
 }
 
 struct AxisState {
@@ -60,8 +61,9 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                     if last_battery_check.elapsed() >= current_battery_interval {
                         let batteries = gilrs
                             .gamepads()
-                            .map(|(_, gp)| GamepadBattery {
+                            .map(|(_, gp)| GamepadInfo {
                                 power_info: gp.power_info(),
+                                name: gp.name().to_string(),
                             })
                             .collect();
 

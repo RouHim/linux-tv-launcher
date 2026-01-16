@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::desktop_apps::DesktopApp;
-use crate::gamepad::GamepadBattery;
+use crate::gamepad::GamepadInfo;
 use crate::input::Action;
 use crate::model::AppEntry;
 use crate::storage::AppConfig;
@@ -41,7 +41,7 @@ pub enum Message {
     WindowFocused(window::Id),
     AppUpdateResult(Result<bool, String>),
     RestartApp,
-    GamepadBatteryUpdate(Vec<GamepadBattery>),
+    GamepadBatteryUpdate(Vec<GamepadInfo>),
     Tick(DateTime<Local>),
     None,
 }
