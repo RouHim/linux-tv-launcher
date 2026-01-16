@@ -69,33 +69,34 @@ where
     let mut row = Row::new().spacing(24).align_y(Alignment::Center);
 
     for info in infos.iter().take(4) {
+        // Gamepad icon
+        let gp_icon = if info.is_keyboard {
+            icons::keyboard_icon(22.0, Color::WHITE)
+        } else {
+            icons::gamepad_icon(22.0, Color::WHITE)
+        };
+
+        let mut content = Row::new()
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .push(gp_icon);
+
         if let Some((battery_icon, _color)) = get_battery_visuals(info.power_info) {
-            // Gamepad icon
-            let gp_icon = if info.is_keyboard {
-                icons::keyboard_icon(22.0, Color::WHITE)
-            } else {
-                icons::gamepad_icon(22.0, Color::WHITE)
-            };
-
-            let content = Row::new()
-                .spacing(8)
-                .align_y(Alignment::Center)
-                .push(gp_icon)
-                .push(battery_icon);
-
-            let tooltip = iced::widget::Tooltip::new(
-                content,
-                Text::new(&info.name).size(14),
-                iced::widget::tooltip::Position::Bottom,
-            )
-            .style(|_theme| iced::widget::container::Style {
-                background: Some(iced::Color::from_rgb8(0, 0, 0).into()),
-                text_color: Some(iced::Color::WHITE),
-                ..Default::default()
-            });
-
-            row = row.push(tooltip);
+            content = content.push(battery_icon);
         }
+
+        let tooltip = iced::widget::Tooltip::new(
+            content,
+            Text::new(&info.name).size(14),
+            iced::widget::tooltip::Position::Bottom,
+        )
+        .style(|_theme| iced::widget::container::Style {
+            background: Some(iced::Color::from_rgb8(0, 0, 0).into()),
+            text_color: Some(iced::Color::WHITE),
+            ..Default::default()
+        });
+
+        row = row.push(tooltip);
     }
 
     row.into()

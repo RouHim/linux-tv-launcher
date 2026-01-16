@@ -1,7 +1,8 @@
 use crate::input::Action;
-use gilrs::{Axis, Button, Event, EventType, Gamepad, Gilrs, MappingSource, PowerInfo};
+use gilrs::{Axis, Button, Event, EventType, Gamepad, GamepadId, Gilrs, MappingSource, PowerInfo};
 use iced::futures::sink::SinkExt;
 use iced::Subscription;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -77,15 +78,16 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                     }
                 };
 
-                let mut axis_state = AxisState::new();
+                let mut axis_states: HashMap<GamepadId, AxisState> = HashMap::new();
                 let mut last_battery_check = Instant::now();
                 // Force an initial battery check immediately
                 let mut current_battery_interval = Duration::ZERO;
 
                 loop {
                     // 1. Process all available events (non-blocking)
-                    while let Some(Event { event, .. }) = gilrs.next_event() {
-                        if let Some(action) = process_event(event, &mut axis_state) {
+                    while let Some(Event { id, event, .. }) = gilrs.next_event() {
+                        let state = axis_states.entry(id).or_insert_with(AxisState::new);
+                        if let Some(action) = process_event(event, state) {
                             let _ = output.send(GamepadEvent::Input(action)).await;
                         }
                     }
