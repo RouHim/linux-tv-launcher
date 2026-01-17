@@ -1,17 +1,18 @@
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{env, io, process, thread};
+use tracing::{error, info};
 
 /// Restarts the current process
 pub fn restart_process(current_executable: PathBuf) {
-    println!(
+    info!(
         "Restarting {} in 3 seconds...",
         current_executable.display()
     );
     thread::sleep(Duration::from_secs(3));
     let err = exec(process::Command::new(current_executable.clone()).args(env::args().skip(1)));
-    eprintln!(
-        "Error: Failed to restart process {}: {}",
+    error!(
+        "Failed to restart process {}: {}",
         current_executable.display(),
         err
     );

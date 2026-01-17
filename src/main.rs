@@ -30,6 +30,7 @@ mod ui_theme;
 mod updater;
 
 fn main() -> iced::Result {
+    tracing_subscriber::fmt::init();
     let mut settings = iced::Settings::default();
     if let Some(sansation) = assets::get_sansation_font() {
         settings.fonts.push(sansation.into());

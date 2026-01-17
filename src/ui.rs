@@ -9,6 +9,7 @@ use iced::{
     widget::{Column, Container, Stack},
     Color, Element, Event, Length, Subscription, Task,
 };
+use tracing::error;
 
 use chrono::{DateTime, Local};
 use rayon::prelude::*;
@@ -1186,7 +1187,7 @@ impl Launcher {
         };
 
         if let Err(err) = save_config(&config) {
-            eprintln!(
+            error!(
                 "Failed to save config after {} app {}: {}",
                 failure_action, app_name, err
             );

@@ -5,6 +5,7 @@ use iced::futures::sink::SinkExt;
 use iced::Subscription;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use tracing::error;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const BATTERY_CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -82,7 +83,7 @@ pub fn gamepad_subscription() -> Subscription<GamepadEvent> {
                 let mut gilrs = match Gilrs::new() {
                     Ok(g) => g,
                     Err(e) => {
-                        eprintln!("Failed to initialize Gilrs: {}", e);
+                        error!("Failed to initialize Gilrs: {}", e);
                         return;
                     }
                 };

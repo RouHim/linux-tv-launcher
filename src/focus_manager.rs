@@ -1,6 +1,8 @@
 use procfs::process::Process;
 use std::ffi::OsStr;
 use std::time::{Duration, Instant};
+use tracing::{info, warn};
+
 const POLL_INTERVAL_FAST: Duration = Duration::from_millis(250);
 const POLL_INTERVAL_SLOW: Duration = Duration::from_millis(1000);
 const STEAM_LAUNCH_TIMEOUT: Duration = Duration::from_secs(60);
@@ -25,10 +27,7 @@ pub async fn monitor_app_process(target: MonitorTarget) {
     let mut current_game_pid: Option<u32> = None;
 
     // Log the monitoring start
-    println!(
-        "[FocusManager] Starting monitoring for target: {:?}",
-        target
-    );
+    info!(?target, "Starting monitoring");
 
     loop {
         let mut is_running = false;
@@ -39,7 +38,7 @@ pub async fn monitor_app_process(target: MonitorTarget) {
                 is_running = true;
             } else {
                 // PID died, reset lock and fall through to full scan
-                println!("[FocusManager] Locked PID {} exited. Scanning...", pid);
+                info!(pid, "Locked PID exited. Scanning...");
                 current_game_pid = None;
             }
         }
@@ -51,13 +50,13 @@ pub async fn monitor_app_process(target: MonitorTarget) {
                 is_running = true;
                 // Lock onto this new PID
                 current_game_pid = Some(pid);
-                println!("[FocusManager] Found/Relocked PID: {}", pid);
+                info!(pid, "Found/Relocked PID");
             }
         }
 
         if is_running {
             if !game_found_once {
-                println!("[FocusManager] Game started/detected!");
+                info!("Game started/detected!");
                 game_found_once = true;
                 first_seen_time = Some(Instant::now());
             }
@@ -67,7 +66,7 @@ pub async fn monitor_app_process(target: MonitorTarget) {
             if !game_found_once {
                 // Launch Phase: Check timeout
                 if start_time.elapsed() > STEAM_LAUNCH_TIMEOUT {
-                    println!("[FocusManager] Launch timeout exceeded. Giving up.");
+                    warn!("Launch timeout exceeded. Giving up.");
                     break;
                 }
             } else {
@@ -82,10 +81,7 @@ pub async fn monitor_app_process(target: MonitorTarget) {
                 };
 
                 if last_seen_time.elapsed() > grace_period {
-                    println!(
-                        "[FocusManager] Game exited (grace period expired). Runtime: {:?}.",
-                        total_runtime
-                    );
+                    info!(?total_runtime, "Game exited (grace period expired).");
                     break;
                 }
             }
