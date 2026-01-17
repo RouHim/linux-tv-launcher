@@ -23,11 +23,11 @@
         "assets": [
           {
             "path": "release-artifacts/linux-tv-launcher-x86_64.tar.gz",
-            "label": "x86_64 Linux (musl, tar.gz)"
+            "label": "x86_64 Linux (gnu, tar.gz)"
           },
           {
             "path": "release-artifacts/linux-tv-launcher-aarch64.tar.gz",
-            "label": "ARM64 Linux (musl, tar.gz)"
+            "label": "ARM64 Linux (gnu, tar.gz)"
           }
         ],
         "successComment": "🎉 This release has been published! Download the binaries for your platform:\n\n- **x86_64**: linux-tv-launcher-x86_64.tar.gz\n- **ARM64**: linux-tv-launcher-aarch64.tar.gz\n\nTo use with `self_update`, the app will automatically fetch and install the correct binary."
