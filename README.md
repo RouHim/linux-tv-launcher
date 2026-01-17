@@ -75,6 +75,9 @@ Games are automatically discovered. For custom setups:
 - `src/storage.rs`: Persistent storage
 - `assets/`: Embedded assets (fonts, icons)
 
+### Architecture
+- [Process Monitoring & Focus Management](docs/process_monitoring.md) - Details on game exit detection strategy.
+
 ### Contributing
 
 Contributions welcome! Please:

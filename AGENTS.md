@@ -36,6 +36,9 @@ This is a Rust application built with Iced for the UI. Key paths:
 - Runtime behavior may depend on XDG directories and desktop entries; use valid `.desktop` files when testing launch flows.
 - When adding new assets, keep them in `assets/` and reference them via `src/assets.rs`.
 
+## Architecture Documentation
+- [Process Monitoring & Focus Management](docs/process_monitoring.md)
+
 ### Technical Requirements
 
 - Linux Desktop only

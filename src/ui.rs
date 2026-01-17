@@ -1069,7 +1069,15 @@ impl Launcher {
         match launch_app(exec) {
             Ok(pid) => {
                 self.game_running = true;
-                let target = monitor_target.unwrap_or(MonitorTarget::Pid(pid));
+
+                // Optimization: Always check the main PID first.
+                // If the direct PID is running, we avoid the expensive full-system scan
+                // required for resolving monitor targets (names, env vars, etc.).
+                let target = match monitor_target {
+                    Some(t) => MonitorTarget::Any(vec![MonitorTarget::Pid(pid), t]),
+                    None => MonitorTarget::Pid(pid),
+                };
+
                 let monitor_task =
                     Task::perform(async move { monitor_app_process(target).await }, |_| {
                         Message::GameExited
