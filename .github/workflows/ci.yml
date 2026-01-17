@@ -7,13 +7,18 @@ on:
       - opened
   workflow_dispatch: # allow manual execution
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   check:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Install rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -27,7 +32,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Cache sccache
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ~/.cache/sccache
           key: sccache-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
@@ -69,7 +74,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -108,7 +113,7 @@ jobs:
         run: musl-strip target/x86_64-unknown-linux-musl/release/linux-tv-launcher
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: linux-tv-launcher-x86_64
           path: target/x86_64-unknown-linux-musl/release/linux-tv-launcher
@@ -123,7 +128,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -162,7 +167,7 @@ jobs:
         run: musl-strip target/aarch64-unknown-linux-musl/release/linux-tv-launcher
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: linux-tv-launcher-aarch64
           path: target/aarch64-unknown-linux-musl/release/linux-tv-launcher
@@ -176,29 +181,46 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history required for semantic-release
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "22"
+
+      - name: Install rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libasound2-dev pkg-config
 
       - name: Download x64 artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: linux-tv-launcher-x86_64
-          path: ./release-artifacts/
+          path: ./release-artifacts/x86_64
 
       - name: Download ARM64 artifact
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v4
         with:
           name: linux-tv-launcher-aarch64
-          path: ./release-artifacts/
+          path: ./release-artifacts/aarch64
 
-      - name: List artifacts
+      - name: Prepare release artifacts
         run: |
+          # Move and rename artifacts to the expected location for semantic-release
+          mv ./release-artifacts/x86_64/linux-tv-launcher ./release-artifacts/linux-tv-launcher-x86_64
+          mv ./release-artifacts/aarch64/linux-tv-launcher ./release-artifacts/linux-tv-launcher-aarch64
+          
+          # Clean up empty directories
+          rmdir ./release-artifacts/x86_64 ./release-artifacts/aarch64
+          
           echo "Artifacts ready for release:"
           ls -lh ./release-artifacts/
 
