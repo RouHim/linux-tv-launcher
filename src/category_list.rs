@@ -1,37 +1,32 @@
 use iced::widget::Id;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::model::LauncherItem;
 
 #[derive(Debug, Clone)]
 pub struct CategoryList {
-    pub items: Arc<Vec<LauncherItem>>,
+    pub items: Vec<LauncherItem>,
     pub selected_index: usize,
-    pub version: usize,
     pub scroll_id: Id,
 }
 
 impl CategoryList {
     pub fn new(items: Vec<LauncherItem>) -> Self {
         Self {
-            items: Arc::new(items),
+            items,
             selected_index: 0,
-            version: 0,
             scroll_id: Id::unique(),
         }
     }
 
     pub fn set_items(&mut self, items: Vec<LauncherItem>) {
-        self.items = Arc::new(items);
+        self.items = items;
         self.clamp_index();
-        self.bump_version();
     }
 
     pub fn clear(&mut self) {
-        self.items = Arc::new(Vec::new());
+        self.items.clear();
         self.selected_index = 0;
-        self.bump_version();
     }
 
     pub fn is_empty(&self) -> bool {
@@ -62,32 +57,21 @@ impl CategoryList {
     where
         F: FnOnce(&mut LauncherItem),
     {
-        if let Some(index) = self.items.iter().position(|i| i.id == id) {
-            let mut new_items = (*self.items).clone();
-            if let Some(item) = new_items.get_mut(index) {
-                f(item);
-                self.items = Arc::new(new_items);
-                self.bump_version();
-            }
+        if let Some(item) = self.items.iter_mut().find(|i| i.id == id) {
+            f(item);
         }
     }
 
     pub fn add_item(&mut self, item: LauncherItem) {
-        let mut new_items = (*self.items).clone();
-        new_items.push(item);
-        self.sort_items(&mut new_items);
-        self.items = Arc::new(new_items);
+        self.items.push(item);
+        self.sort_inplace();
         self.clamp_index();
-        self.bump_version();
     }
 
     pub fn remove_selected(&mut self) -> Option<LauncherItem> {
         if self.selected_index < self.items.len() {
-            let mut new_items = (*self.items).clone();
-            let removed = new_items.remove(self.selected_index);
-            self.items = Arc::new(new_items);
+            let removed = self.items.remove(self.selected_index);
             self.clamp_index();
-            self.bump_version();
             Some(removed)
         } else {
             None
@@ -103,13 +87,9 @@ impl CategoryList {
         }
     }
 
-    fn bump_version(&mut self) {
-        self.version = self.version.wrapping_add(1);
-    }
-
     /// Sorts items by last_started timestamp (most recent first).
     /// Items that have never been launched are sorted alphabetically at the end.
-    fn sort_items(&self, items: &mut [LauncherItem]) {
+    fn sort_items(items: &mut [LauncherItem]) {
         items.sort_by(|a, b| {
             match (a.last_started, b.last_started) {
                 // Both have timestamps: sort by most recent first (descending)
@@ -125,9 +105,7 @@ impl CategoryList {
     }
 
     pub fn sort_inplace(&mut self) {
-        let mut new_items = (*self.items).clone();
-        self.sort_items(&mut new_items);
-        self.items = Arc::new(new_items);
+        Self::sort_items(&mut self.items);
     }
 }
 
@@ -259,33 +237,8 @@ mod tests {
         assert_eq!(list.items[0].name, "Updated");
 
         // Non-existent ID does nothing
-        let v = list.version;
         list.update_item_by_id(Uuid::new_v4(), |i| i.name = "Nope".to_string());
-        assert_eq!(list.version, v);
         assert_eq!(list.items[0].name, "Updated");
-    }
-
-    #[test]
-    fn test_version_bumps_on_mutations() {
-        let mut list = CategoryList::new(Vec::new());
-        assert_eq!(list.version, 0);
-
-        list.set_items(vec![item("A")]);
-        assert_eq!(list.version, 1);
-
-        list.add_item(item("B"));
-        assert_eq!(list.version, 2);
-
-        list.remove_selected();
-        assert_eq!(list.version, 3);
-
-        list.clear();
-        assert_eq!(list.version, 4);
-
-        // Test wrapping
-        list.version = usize::MAX;
-        list.set_items(vec![item("X")]);
-        assert_eq!(list.version, 0);
     }
 
     #[test]

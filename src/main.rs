@@ -24,6 +24,7 @@ mod ui_app_picker;
 mod ui_components;
 mod ui_main_view;
 mod ui_modals;
+mod ui_state;
 mod ui_system_info_modal;
 mod ui_system_update_modal;
 mod ui_theme;

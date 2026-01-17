@@ -42,16 +42,8 @@ use crate::ui_components::{render_clock, render_gamepad_infos};
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
 };
+use crate::ui_state::ModalState;
 use crate::ui_system_info_modal::render_system_info_modal;
-
-enum ModalState {
-    None,
-    ContextMenu { index: usize },
-    AppPicker(AppPickerState),
-    SystemUpdate(SystemUpdateState),
-    SystemInfo(Box<Option<GamingSystemInfo>>),
-    Help,
-}
 
 pub struct Launcher {
     apps: CategoryList,
@@ -164,313 +156,26 @@ impl Launcher {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::AppsLoaded(result) => {
-                self.apps_loaded = true;
-                match result {
-                    Ok(config) => {
-                        let items: Vec<LauncherItem> = config
-                            .apps
-                            .into_iter()
-                            .map(|entry| {
-                                let mut item = LauncherItem::from_app_entry(entry);
-                                if item.launch_key.is_none() {
-                                    if let LauncherAction::Launch { exec } = &item.action {
-                                        item.launch_key = Some(format!("desktop:{}", exec));
-                                    }
-                                }
-                                item
-                            })
-                            .collect();
-                        self.apps.set_items(items);
-                        self.apps.sort_inplace();
-                        self.status_message = None;
+            // Initialization & Data Loading
+            Message::AppsLoaded(res) => self.handle_apps_loaded(res),
+            Message::GamesLoaded(games) => self.handle_games_loaded(games),
+            Message::ImageFetched(id, path) => self.handle_image_fetched(id, path),
 
-                        // Store game launch history for later use when games are loaded
-                        self.game_launch_history = config.game_launch_history;
-
-                        // If no env key was found, try using the one from config
-                        if self.api_key.is_none() {
-                            if let Some(key) = config.steamgriddb_api_key {
-                                self.api_key = Some(key.clone());
-                                self.sgdb_client = SteamGridDbClient::new(key);
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        self.apps.clear();
-                        self.status_message = Some(err);
-                    }
-                }
-
-                // Continue startup chain: Scan games now that we have config (and potential API key)
-                Task::perform(
-                    async {
-                        tokio::task::spawn_blocking(scan_games)
-                            .await
-                            .unwrap_or_else(|_| Vec::new())
-                    },
-                    Message::GamesLoaded,
-                )
-            }
-            Message::GamesLoaded(games) => {
-                let items: Vec<LauncherItem> = games
-                    .into_iter()
-                    .map(|entry| {
-                        let mut item = LauncherItem::from_app_entry(entry);
-                        // Lookup launch history using game identifier
-                        if let Some(launch_key) = item.launch_key.as_ref() {
-                            if let Some(&timestamp) = self.game_launch_history.get(launch_key) {
-                                item.last_started = Some(timestamp);
-                            }
-                        }
-                        item
-                    })
-                    .collect();
-                self.games.set_items(items);
-                self.games.sort_inplace();
-                self.games_loaded = true;
-                self.status_message = None;
-
-                // Spawn tasks to fetch images
-                let mut tasks = Vec::new();
-                if let Some(cache) = &self.image_cache {
-                    let target_width = (GAME_POSTER_WIDTH as f64 * self.scale_factor) as u32;
-                    let target_height = (GAME_POSTER_HEIGHT as f64 * self.scale_factor) as u32;
-                    let pipeline_template = GameImageFetcher::new(
-                        cache.cache_dir.clone(),
-                        self.sgdb_client.clone(),
-                        self.searxng_client.clone(),
-                        target_width,
-                        target_height,
-                    );
-
-                    tasks = self
-                        .games
-                        .items
-                        .par_iter()
-                        .map(|game| {
-                            let game_id = game.id;
-                            let game_name = game.name.clone();
-                            let source_image_url = game.source_image_url.clone();
-                            let pipeline = pipeline_template.clone();
-
-                            Task::perform(
-                                async move {
-                                    tokio::task::spawn_blocking(move || {
-                                        pipeline.fetch(
-                                            game_id,
-                                            &game_name,
-                                            source_image_url.as_deref(),
-                                        )
-                                    })
-                                    .await
-                                    .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-                                },
-                                |res| match res {
-                                    Ok(Some((id, path))) => Message::ImageFetched(id, path),
-                                    _ => Message::None,
-                                },
-                            )
-                        })
-                        .collect();
-                }
-                Task::batch(tasks)
-            }
-            Message::ImageFetched(id, path) => {
-                self.games.update_item_by_id(id, |item| {
-                    item.icon = Some(path.to_string_lossy().to_string());
-                });
-                Task::none()
-            }
+            // Input & Navigation
             Message::Input(action) => self.handle_navigation(action),
-            Message::ScaleFactorChanged(scale) => {
-                self.scale_factor = scale;
-                Task::none()
-            }
-            Message::Tick(time) => {
-                self.current_time = time;
-                Task::none()
-            }
-            Message::GamepadBatteryUpdate(infos) => {
-                self.gamepad_infos = infos;
-                Task::none()
-            }
-            Message::WindowResized(width, _height) => {
-                self.window_width = width;
-                Task::none()
-            }
 
-            Message::OpenAppPicker => {
-                self.modal = ModalState::AppPicker(AppPickerState::new());
-                self.available_apps.clear();
-                // Scan for desktop apps asynchronously
-                Task::perform(async { scan_desktop_apps() }, Message::AvailableAppsLoaded)
-            }
-            Message::AvailableAppsLoaded(apps) => {
-                // Filter out apps already added (by exec command)
-                let existing_execs: std::collections::HashSet<_> = self
-                    .apps
-                    .items
-                    .iter()
-                    .filter_map(|item| match &item.action {
-                        LauncherAction::Launch { exec } => Some(exec.clone()),
-                        _ => None,
-                    })
-                    .collect();
-
-                self.available_apps = apps
-                    .into_iter()
-                    .filter(|app| !existing_execs.contains(&app.exec))
-                    .collect();
-                if let Some(state) = self.app_picker_state_mut() {
-                    state.selected_index = 0;
-                }
-                self.update_app_picker_cols();
-                self.snap_to_picker_selection()
-            }
-            Message::AddSelectedApp => {
-                let selected_index = match self.app_picker_state() {
-                    Some(state) => state.selected_index,
-                    None => return Task::none(),
-                };
-                if let Some(selected_app) = self.available_apps.get(selected_index).cloned() {
-                    let icon_path = selected_app
-                        .icon_path
-                        .as_ref()
-                        .map(|p| p.to_string_lossy().to_string());
-
-                    let new_entry = AppEntry::new(
-                        selected_app.name.clone(),
-                        selected_app.exec.clone(),
-                        icon_path,
-                    )
-                    .with_launch_key(format!("desktop:{}", selected_app.exec));
-
-                    let new_item = LauncherItem::from_app_entry(new_entry);
-
-                    self.apps.add_item(new_item);
-
-                    self.save_apps_config("Added", "adding", &selected_app.name);
-
-                    // Remove from available apps and close picker
-                    self.available_apps.remove(selected_index);
-                    self.modal = ModalState::None;
-                }
+            // Window & System Events
+            Message::ScaleFactorChanged(s) => {
+                self.scale_factor = s;
                 Task::none()
             }
-            Message::CloseAppPicker => {
-                self.modal = ModalState::None;
+            Message::Tick(t) => {
+                self.current_time = t;
                 Task::none()
             }
-            Message::AppPickerScrolled(viewport) => {
-                if let Some(state) = self.app_picker_state_mut() {
-                    state.scroll_offset = viewport.absolute_offset().y;
-                    state.viewport_height = viewport.bounds().height;
-                }
+            Message::WindowResized(w) => {
+                self.window_width = w;
                 Task::none()
-            }
-            Message::StartSystemUpdate => {
-                self.osk_manager.show();
-                self.modal = ModalState::SystemUpdate(SystemUpdateState::new());
-                Task::none()
-            }
-            Message::SystemUpdateProgress(progress) => {
-                if let ModalState::SystemUpdate(state) = &mut self.modal {
-                    // Prevent updates if the process is already finished (e.g. cancelled/failed)
-                    // This avoids race conditions where pending stream messages overwrite the cancellation state
-                    if !state.status.is_finished() {
-                        match progress {
-                            SystemUpdateProgress::StatusChange(new_status) => {
-                                state.status = new_status;
-                            }
-                            SystemUpdateProgress::LogLine(line) => {
-                                state.output_log.push(line);
-                            }
-                            SystemUpdateProgress::SpinnerTick => {
-                                state.spinner_tick = state.spinner_tick.wrapping_add(1);
-                            }
-                        }
-                    }
-                }
-                Task::none()
-            }
-            Message::CloseSystemUpdateModal => {
-                self.modal = ModalState::None;
-                Task::none()
-            }
-            Message::CancelSystemUpdate => {
-                if let ModalState::SystemUpdate(state) = &mut self.modal {
-                    // Only allow cancelling if not installing
-                    if !matches!(state.status, UpdateStatus::Installing { .. }) {
-                        state.status = UpdateStatus::Failed("Update cancelled by user".to_string());
-                    }
-                }
-                Task::none()
-            }
-            Message::RequestReboot => {
-                if let Err(e) = std::process::Command::new("systemctl")
-                    .arg("reboot")
-                    .spawn()
-                {
-                    self.status_message = Some(format!("Failed to reboot: {}", e));
-                }
-                Task::none()
-            }
-            Message::OpenSystemInfo => {
-                self.modal = ModalState::SystemInfo(Box::new(None));
-                Task::perform(
-                    async { tokio::task::spawn_blocking(fetch_system_info).await.ok() },
-                    |info| {
-                        if let Some(info) = info {
-                            Message::SystemInfoLoaded(Box::new(info))
-                        } else {
-                            Message::None
-                        }
-                    },
-                )
-            }
-            Message::SystemInfoLoaded(info_box) => {
-                if let ModalState::SystemInfo(state) = &mut self.modal {
-                    **state = Some(*info_box);
-                }
-                Task::none()
-            }
-            Message::CloseSystemInfoModal => {
-                self.modal = ModalState::None;
-                Task::none()
-            }
-            Message::GameExited => {
-                self.game_running = false;
-                if let Some(old_id) = self.window_id {
-                    let settings = window::Settings {
-                        decorations: false,
-                        fullscreen: true,
-                        level: window::Level::AlwaysOnTop,
-                        ..Default::default()
-                    };
-                    let (new_id, open_task) = window::open(settings);
-                    self.window_id = Some(new_id);
-
-                    Task::batch(vec![
-                        open_task.map(Message::WindowOpened),
-                        window::close(old_id),
-                    ])
-                } else {
-                    Task::none()
-                }
-            }
-            Message::WindowOpened(id) => {
-                self.window_id = Some(id);
-                // Defer update check until window is ready
-                Task::perform(
-                    async {
-                        tokio::task::spawn_blocking(crate::updater::check_for_updates)
-                            .await
-                            .map_err(|e| format!("Task join error: {}", e))
-                            .and_then(|r| r)
-                    },
-                    Message::AppUpdateResult,
-                )
             }
             Message::WindowFocused(id) => {
                 if self.window_id.is_none() {
@@ -478,34 +183,373 @@ impl Launcher {
                 }
                 Task::none()
             }
-            Message::AppUpdateResult(result) => match result {
-                Ok(updated) => {
-                    if updated {
-                        self.status_message = Some("App updated, restarting...".to_string());
-                        Task::perform(
-                            async {
-                                tokio::time::sleep(Duration::from_secs(2)).await;
-                            },
-                            |_| Message::RestartApp,
-                        )
-                    } else {
-                        // Silent update check when no updates found
-                        Task::none()
-                    }
-                }
-                Err(_e) => {
-                    // Log error but don't show user facing message for background check failure
-                    Task::none()
-                }
-            },
-            Message::RestartApp => {
-                if let Some(exe) = &self.current_exe {
-                    restart_process(exe.clone());
-                }
+            Message::WindowOpened(id) => self.handle_window_opened(id),
+
+            // App Picker Modal
+            Message::OpenAppPicker => self.open_app_picker(),
+            Message::AvailableAppsLoaded(apps) => self.handle_available_apps_loaded(apps),
+            Message::AddSelectedApp => self.add_selected_app(),
+            Message::CloseAppPicker => {
+                self.modal = ModalState::None;
                 Task::none()
             }
+            Message::AppPickerScrolled(vp) => self.handle_app_picker_scrolled(vp),
+
+            // System Update Modal
+            Message::StartSystemUpdate => self.start_system_update(),
+            Message::SystemUpdateProgress(p) => self.handle_system_update_progress(p),
+            Message::CloseSystemUpdateModal => {
+                self.modal = ModalState::None;
+                Task::none()
+            }
+            Message::CancelSystemUpdate => self.cancel_system_update(),
+            Message::RequestReboot => self.request_reboot(),
+
+            // System Info Modal
+            Message::OpenSystemInfo => self.open_system_info(),
+            Message::SystemInfoLoaded(info) => self.handle_system_info_loaded(info),
+            Message::CloseSystemInfoModal => {
+                self.modal = ModalState::None;
+                Task::none()
+            }
+
+            // Game Execution Monitoring
+            Message::GameExited => self.handle_game_exited(),
+            Message::GamepadBatteryUpdate(infos) => {
+                self.gamepad_infos = infos;
+                Task::none()
+            }
+
+            // App Updates (Self-updater)
+            Message::AppUpdateResult(res) => self.handle_app_update_result(res),
+            Message::RestartApp => self.restart_app(),
+
             Message::None => Task::none(),
         }
+    }
+
+    // --- Message Handlers ---
+
+    fn handle_apps_loaded(&mut self, result: Result<AppConfig, String>) -> Task<Message> {
+        self.apps_loaded = true;
+        match result {
+            Ok(config) => {
+                let items: Vec<LauncherItem> = config
+                    .apps
+                    .into_iter()
+                    .map(|entry| {
+                        let mut item = LauncherItem::from_app_entry(entry);
+                        if item.launch_key.is_none() {
+                            if let LauncherAction::Launch { exec } = &item.action {
+                                item.launch_key = Some(format!("desktop:{}", exec));
+                            }
+                        }
+                        item
+                    })
+                    .collect();
+                self.apps.set_items(items);
+                self.apps.sort_inplace();
+                self.status_message = None;
+
+                // Store game launch history for later use when games are loaded
+                self.game_launch_history = config.game_launch_history;
+
+                // If no env key was found, try using the one from config
+                if self.api_key.is_none() {
+                    if let Some(key) = config.steamgriddb_api_key {
+                        self.api_key = Some(key.clone());
+                        self.sgdb_client = SteamGridDbClient::new(key);
+                    }
+                }
+            }
+            Err(err) => {
+                self.apps.clear();
+                self.status_message = Some(err);
+            }
+        }
+
+        // Continue startup chain: Scan games now that we have config (and potential API key)
+        Task::perform(
+            async {
+                tokio::task::spawn_blocking(scan_games)
+                    .await
+                    .unwrap_or_else(|_| Vec::new())
+            },
+            Message::GamesLoaded,
+        )
+    }
+
+    fn handle_games_loaded(&mut self, games: Vec<AppEntry>) -> Task<Message> {
+        let items: Vec<LauncherItem> = games
+            .into_iter()
+            .map(|entry| {
+                let mut item = LauncherItem::from_app_entry(entry);
+                // Lookup launch history using game identifier
+                if let Some(launch_key) = item.launch_key.as_ref() {
+                    if let Some(&timestamp) = self.game_launch_history.get(launch_key) {
+                        item.last_started = Some(timestamp);
+                    }
+                }
+                item
+            })
+            .collect();
+        self.games.set_items(items);
+        self.games.sort_inplace();
+        self.games_loaded = true;
+        self.status_message = None;
+
+        // Spawn tasks to fetch images
+        let mut tasks = Vec::new();
+        if let Some(cache) = &self.image_cache {
+            let target_width = (GAME_POSTER_WIDTH as f64 * self.scale_factor) as u32;
+            let target_height = (GAME_POSTER_HEIGHT as f64 * self.scale_factor) as u32;
+            let pipeline_template = GameImageFetcher::new(
+                cache.cache_dir.clone(),
+                self.sgdb_client.clone(),
+                self.searxng_client.clone(),
+                target_width,
+                target_height,
+            );
+
+            tasks = self
+                .games
+                .items
+                .par_iter()
+                .map(|game| {
+                    let game_id = game.id;
+                    let game_name = game.name.clone();
+                    let source_image_url = game.source_image_url.clone();
+                    let pipeline = pipeline_template.clone();
+
+                    Task::perform(
+                        async move {
+                            tokio::task::spawn_blocking(move || {
+                                pipeline.fetch(game_id, &game_name, source_image_url.as_deref())
+                            })
+                            .await
+                            .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+                        },
+                        |res| match res {
+                            Ok(Some((id, path))) => Message::ImageFetched(id, path),
+                            _ => Message::None,
+                        },
+                    )
+                })
+                .collect();
+        }
+        Task::batch(tasks)
+    }
+
+    fn handle_image_fetched(&mut self, id: uuid::Uuid, path: PathBuf) -> Task<Message> {
+        self.games.update_item_by_id(id, |item| {
+            item.icon = Some(path.to_string_lossy().to_string());
+        });
+        Task::none()
+    }
+
+    fn handle_window_opened(&mut self, id: window::Id) -> Task<Message> {
+        self.window_id = Some(id);
+        // Defer update check until window is ready
+        Task::perform(
+            async {
+                tokio::task::spawn_blocking(crate::updater::check_for_updates)
+                    .await
+                    .map_err(|e| format!("Task join error: {}", e))
+                    .and_then(|r| r)
+            },
+            Message::AppUpdateResult,
+        )
+    }
+
+    fn open_app_picker(&mut self) -> Task<Message> {
+        self.modal = ModalState::AppPicker(AppPickerState::new());
+        self.available_apps.clear();
+        // Scan for desktop apps asynchronously
+        Task::perform(async { scan_desktop_apps() }, Message::AvailableAppsLoaded)
+    }
+
+    fn handle_available_apps_loaded(&mut self, apps: Vec<DesktopApp>) -> Task<Message> {
+        // Filter out apps already added (by exec command)
+        let existing_execs: std::collections::HashSet<_> = self
+            .apps
+            .items
+            .iter()
+            .filter_map(|item| match &item.action {
+                LauncherAction::Launch { exec } => Some(exec.clone()),
+                _ => None,
+            })
+            .collect();
+
+        self.available_apps = apps
+            .into_iter()
+            .filter(|app| !existing_execs.contains(&app.exec))
+            .collect();
+        if let Some(state) = self.app_picker_state_mut() {
+            state.selected_index = 0;
+        }
+        self.update_app_picker_cols();
+        self.snap_to_picker_selection()
+    }
+
+    fn add_selected_app(&mut self) -> Task<Message> {
+        let selected_index = match self.app_picker_state() {
+            Some(state) => state.selected_index,
+            None => return Task::none(),
+        };
+        if let Some(selected_app) = self.available_apps.get(selected_index).cloned() {
+            let icon_path = selected_app
+                .icon_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string());
+
+            let new_entry = AppEntry::new(
+                selected_app.name.clone(),
+                selected_app.exec.clone(),
+                icon_path,
+            )
+            .with_launch_key(format!("desktop:{}", selected_app.exec));
+
+            let new_item = LauncherItem::from_app_entry(new_entry);
+
+            self.apps.add_item(new_item);
+
+            self.save_apps_config("Added", "adding", &selected_app.name);
+
+            // Remove from available apps and close picker
+            self.available_apps.remove(selected_index);
+            self.modal = ModalState::None;
+        }
+        Task::none()
+    }
+
+    fn handle_app_picker_scrolled(
+        &mut self,
+        viewport: iced::widget::scrollable::Viewport,
+    ) -> Task<Message> {
+        if let Some(state) = self.app_picker_state_mut() {
+            state.scroll_offset = viewport.absolute_offset().y;
+            state.viewport_height = viewport.bounds().height;
+        }
+        Task::none()
+    }
+
+    fn start_system_update(&mut self) -> Task<Message> {
+        self.osk_manager.show();
+        self.modal = ModalState::SystemUpdate(SystemUpdateState::new());
+        Task::none()
+    }
+
+    fn handle_system_update_progress(&mut self, progress: SystemUpdateProgress) -> Task<Message> {
+        if let ModalState::SystemUpdate(state) = &mut self.modal {
+            // Prevent updates if the process is already finished (e.g. cancelled/failed)
+            // This avoids race conditions where pending stream messages overwrite the cancellation state
+            if !state.status.is_finished() {
+                match progress {
+                    SystemUpdateProgress::StatusChange(new_status) => {
+                        state.status = new_status;
+                    }
+                    SystemUpdateProgress::LogLine(line) => {
+                        state.output_log.push(line);
+                    }
+                    SystemUpdateProgress::SpinnerTick => {
+                        state.spinner_tick = state.spinner_tick.wrapping_add(1);
+                    }
+                }
+            }
+        }
+        Task::none()
+    }
+
+    fn cancel_system_update(&mut self) -> Task<Message> {
+        if let ModalState::SystemUpdate(state) = &mut self.modal {
+            // Only allow cancelling if not installing
+            if !matches!(state.status, UpdateStatus::Installing { .. }) {
+                state.status = UpdateStatus::Failed("Update cancelled by user".to_string());
+            }
+        }
+        Task::none()
+    }
+
+    fn request_reboot(&mut self) -> Task<Message> {
+        if let Err(e) = std::process::Command::new("systemctl")
+            .arg("reboot")
+            .spawn()
+        {
+            self.status_message = Some(format!("Failed to reboot: {}", e));
+        }
+        Task::none()
+    }
+
+    fn open_system_info(&mut self) -> Task<Message> {
+        self.modal = ModalState::SystemInfo(Box::new(None));
+        Task::perform(
+            async { tokio::task::spawn_blocking(fetch_system_info).await.ok() },
+            |info| {
+                if let Some(info) = info {
+                    Message::SystemInfoLoaded(Box::new(info))
+                } else {
+                    Message::None
+                }
+            },
+        )
+    }
+
+    fn handle_system_info_loaded(&mut self, info_box: Box<GamingSystemInfo>) -> Task<Message> {
+        if let ModalState::SystemInfo(state) = &mut self.modal {
+            **state = Some(*info_box);
+        }
+        Task::none()
+    }
+
+    fn handle_game_exited(&mut self) -> Task<Message> {
+        self.game_running = false;
+        if let Some(old_id) = self.window_id {
+            let settings = window::Settings {
+                decorations: false,
+                fullscreen: true,
+                level: window::Level::AlwaysOnTop,
+                ..Default::default()
+            };
+            let (new_id, open_task) = window::open(settings);
+            self.window_id = Some(new_id);
+
+            Task::batch(vec![
+                open_task.map(Message::WindowOpened),
+                window::close(old_id),
+            ])
+        } else {
+            Task::none()
+        }
+    }
+
+    fn handle_app_update_result(&mut self, result: Result<bool, String>) -> Task<Message> {
+        match result {
+            Ok(updated) => {
+                if updated {
+                    self.status_message = Some("App updated, restarting...".to_string());
+                    Task::perform(
+                        async {
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                        },
+                        |_| Message::RestartApp,
+                    )
+                } else {
+                    // Silent update check when no updates found
+                    Task::none()
+                }
+            }
+            Err(_e) => {
+                // Log error but don't show user facing message for background check failure
+                Task::none()
+            }
+        }
+    }
+
+    fn restart_app(&mut self) -> Task<Message> {
+        if let Some(exe) = &self.current_exe {
+            restart_process(exe.clone());
+        }
+        Task::none()
     }
 
     fn update_app_picker_cols(&mut self) {
@@ -608,7 +652,7 @@ impl Launcher {
                 Some(Message::ScaleFactorChanged(scale_factor as f64))
             }
             Event::Window(iced::window::Event::Resized(size)) => {
-                Some(Message::WindowResized(size.width, size.height))
+                Some(Message::WindowResized(size.width))
             }
             Event::Window(iced::window::Event::Focused) => Some(Message::WindowFocused(window_id)),
             _ => None,
