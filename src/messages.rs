@@ -18,7 +18,7 @@ pub enum Message {
     ImageFetched(Uuid, PathBuf),
     Input(Action),
     ScaleFactorChanged(f64),
-    WindowResized(f32, f32),
+    WindowResized(f32),
     // App picker messages
     OpenAppPicker,
     AvailableAppsLoaded(Vec<DesktopApp>),
