@@ -1,3 +1,12 @@
+## [1.0.1](https://github.com/RouHim/linux-tv-launcher/compare/v1.0.0...v1.0.1) (2026-01-17)
+
+
+### Bug Fixes
+
+* **ci:** package binaries as tar.gz and disable wayland to fix panic ([bc23277](https://github.com/RouHim/linux-tv-launcher/commit/bc23277d54c27a5e0085413f71bcca0178ef8d5b))
+* **ci:** switch to gnu build with cross and system deps ([4d2ffb0](https://github.com/RouHim/linux-tv-launcher/commit/4d2ffb01d46dd3c0e43b9fecd8be1f2b4f50b595))
+* **ci:** use native arm64 runner and remove cross config ([26d3cb9](https://github.com/RouHim/linux-tv-launcher/commit/26d3cb9dfaba37440bc6c0b4836c529c5f1927a3))
+
 # 1.0.0 (2026-01-17)
 
 
