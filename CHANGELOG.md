@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/RouHim/linux-tv-launcher/compare/v1.0.1...v1.1.0) (2026-01-18)
+
+
+### Features
+
+* **games:** add Simple64 N64 emulator support ([0fb079c](https://github.com/RouHim/linux-tv-launcher/commit/0fb079cc49300988b6f6a87b1eda6591cbfbbf14))
+
 ## [1.0.1](https://github.com/RouHim/linux-tv-launcher/compare/v1.0.0...v1.0.1) (2026-01-17)
 
 
