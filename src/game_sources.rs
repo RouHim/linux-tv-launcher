@@ -1,5 +1,5 @@
+use crate::gopher64::scan_gopher64_games;
 use crate::model::AppEntry;
-use crate::simple64::scan_simple64_games;
 use directories::BaseDirs;
 use rayon::prelude::*;
 use serde_json::Value;
@@ -9,18 +9,18 @@ use std::path::{Path, PathBuf};
 
 /// Scan all game sources (Steam, Heroic) in parallel and return unique entries
 pub fn scan_games() -> Vec<AppEntry> {
-    // Scan Steam, Heroic, and Simple64 games concurrently
-    let ((steam_games, heroic_games), simple64_games) = rayon::join(
+    // Scan Steam, Heroic, and Gopher64 games concurrently
+    let ((steam_games, heroic_games), gopher64_games) = rayon::join(
         || rayon::join(scan_steam_games, scan_heroic_games),
-        scan_simple64_games,
+        scan_gopher64_games,
     );
 
     // Combine results
     let mut games =
-        Vec::with_capacity(steam_games.len() + heroic_games.len() + simple64_games.len());
+        Vec::with_capacity(steam_games.len() + heroic_games.len() + gopher64_games.len());
     games.extend(steam_games);
     games.extend(heroic_games);
-    games.extend(simple64_games);
+    games.extend(gopher64_games);
 
     // Sort and deduplicate
     games.sort_by(|a, b| a.name.cmp(&b.name).then(a.exec.cmp(&b.exec)));
@@ -30,47 +30,56 @@ pub fn scan_games() -> Vec<AppEntry> {
 }
 
 fn scan_steam_games() -> Vec<AppEntry> {
-    let base_dirs = match BaseDirs::new() {
-        Some(dirs) => dirs,
-        None => return Vec::new(),
+    let Some(base_dirs) = BaseDirs::new() else {
+        return Vec::new();
     };
 
-    let home = base_dirs.home_dir();
-    let mut roots = Vec::new();
-    for candidate in [
+    let roots = get_steam_roots(base_dirs.home_dir());
+    let library_paths = get_steam_library_paths(&roots);
+    let manifest_paths = get_steam_manifest_paths(&library_paths);
+
+    // Process manifests in parallel for better performance
+    manifest_paths
+        .par_iter()
+        .filter_map(|path| parse_steam_manifest_file(path))
+        .collect()
+}
+
+fn get_steam_roots(home: &Path) -> Vec<PathBuf> {
+    [
         home.join(".steam/steam"),
         home.join(".local/share/Steam"),
         home.join(".steam/root"),
-    ] {
-        if candidate.exists() {
-            roots.push(candidate);
-        }
-    }
+    ]
+    .into_iter()
+    .filter(|p| p.exists())
+    .collect()
+}
 
-    let mut library_paths = Vec::new();
-    for root in &roots {
+fn get_steam_library_paths(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut paths = HashSet::new();
+
+    for root in roots {
+        if root.join("steamapps").exists() {
+            paths.insert(root.clone());
+        }
+
         let library_file = root.join("steamapps/libraryfolders.vdf");
         if let Ok(contents) = fs::read_to_string(&library_file) {
-            library_paths.extend(parse_library_folders(&contents));
-        }
-        if root.join("steamapps").exists() {
-            library_paths.push(root.clone());
-        }
-    }
-
-    let mut seen = HashSet::new();
-    let mut unique_paths = Vec::new();
-    for path in library_paths {
-        if seen.insert(path.clone()) {
-            unique_paths.push(path);
+            for path in parse_library_folders(&contents) {
+                paths.insert(path);
+            }
         }
     }
 
-    // Collect all manifest file paths
+    paths.into_iter().collect()
+}
+
+fn get_steam_manifest_paths(library_paths: &[PathBuf]) -> Vec<PathBuf> {
     let mut manifest_paths = Vec::new();
-    for library in unique_paths {
+    for library in library_paths {
         let steamapps = library.join("steamapps");
-        if let Ok(entries) = fs::read_dir(&steamapps) {
+        if let Ok(entries) = fs::read_dir(steamapps) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if is_manifest_file(&path) {
@@ -79,14 +88,7 @@ fn scan_steam_games() -> Vec<AppEntry> {
             }
         }
     }
-
-    // Process manifests in parallel for better performance
-    let games: Vec<AppEntry> = manifest_paths
-        .par_iter()
-        .filter_map(|path| parse_steam_manifest_file(path))
-        .collect();
-
-    games
+    manifest_paths
 }
 
 /// Parse a single Steam manifest file and return an AppEntry if valid
@@ -114,108 +116,104 @@ fn parse_steam_manifest_file(path: &Path) -> Option<AppEntry> {
 }
 
 fn is_ignored_app(name: &str, id: &str) -> bool {
-    let name_lower = name.to_lowercase();
+    const IGNORED_IDS: &[&str] = &[
+        "228980",  // Steamworks Common Redist
+        "1391110", // Steam Linux Runtime - Soldier
+        "1628350", // Steam Linux Runtime - Sniper
+        "1070560", // Steam Linux Runtime
+        "1493710", // Proton Experimental
+        "1887720", // Proton EasyAntiCheat Runtime
+    ];
 
-    // Exact ID matches for common Steam runtimes/tools
-    match id {
-        "228980" => return true,  // Steamworks Common Redist
-        "1391110" => return true, // Steam Linux Runtime - Soldier
-        "1628350" => return true, // Steam Linux Runtime - Sniper
-        "1070560" => return true, // Steam Linux Runtime
-        "1493710" => return true, // Proton Experimental
-        "1887720" => return true, // Proton EasyAntiCheat Runtime
-        _ => {}
-    }
-
-    // Keyword matching
-    if name_lower.contains("proton")
-        || name_lower.contains("steam linux runtime")
-        || name_lower.contains("steamworks common redist")
-        || name_lower.contains("galaxy common redist")
-        || name_lower == "dxvk"
-        || name_lower == "vkd3d"
-    {
+    if IGNORED_IDS.contains(&id) {
         return true;
     }
 
-    false
+    const IGNORED_KEYWORDS: &[&str] = &[
+        "proton",
+        "steam linux runtime",
+        "steamworks common redist",
+        "galaxy common redist",
+    ];
+
+    let name_lower = name.to_lowercase();
+    if IGNORED_KEYWORDS.iter().any(|k| name_lower.contains(k)) {
+        return true;
+    }
+
+    matches!(name_lower.as_str(), "dxvk" | "vkd3d")
 }
 
 fn scan_heroic_games() -> Vec<AppEntry> {
-    let base_dirs = match BaseDirs::new() {
-        Some(dirs) => dirs,
-        None => return Vec::new(),
+    let Some(base_dirs) = BaseDirs::new() else {
+        return Vec::new();
     };
 
-    let config_dir = base_dirs.config_dir().to_path_buf();
+    let config_dir = base_dirs.config_dir();
     let home = base_dirs.home_dir();
-
-    let mut games = Vec::new();
-    let mut seen_app_names = HashSet::new();
 
     let heroic_roots = [
         config_dir.join("heroic"),
         home.join(".var/app/com.heroicgameslauncher.hgl/config/heroic"),
     ];
 
-    for root in heroic_roots {
-        if !root.exists() {
-            continue;
-        }
+    let mut games = Vec::new();
+    let mut seen_app_names = HashSet::new();
 
-        // Phase 1: Scan store library files (Epic, GOG, Amazon)
-        let store_cache = root.join("store_cache");
-        let library_files = [
-            ("legendary_library.json", "legendary"),
-            ("gog_library.json", "gog"),
-            ("nile_library.json", "nile"),
-        ];
-
-        for (file, store_hint) in library_files {
-            let path = store_cache.join(file);
-            if let Some(contents) = read_file_if_exists(&path) {
-                for game in parse_heroic_library_json(&contents, store_hint) {
-                    if !is_ignored_app(&game.title, &game.app_name)
-                        && seen_app_names.insert(game.app_name.clone())
-                    {
-                        let exec = heroic_exec(&game.store, &game.app_name);
-                        games.push(
-                            AppEntry::new(game.title, exec, game.art_cover)
-                                .with_executable(game.executable)
-                                .with_launch_key(game.launch_key.clone()),
-                        );
-                    }
-                }
-            }
-        }
-
-        // Phase 2: Scan sideloaded games
-        // Primary: sideload_apps/library.json
-        // Fallback: store_cache/sideload_cache.json (legacy format)
-        let sideload_paths = [
-            root.join("sideload_apps").join("library.json"),
-            store_cache.join("sideload_cache.json"),
-        ];
-
-        for path in sideload_paths {
-            if let Some(contents) = read_file_if_exists(&path) {
-                for game in parse_heroic_library_json(&contents, "sideload") {
-                    if !is_ignored_app(&game.title, &game.app_name)
-                        && seen_app_names.insert(game.app_name.clone())
-                    {
-                        let exec = heroic_exec(&game.store, &game.app_name);
-                        games.push(
-                            AppEntry::new(game.title, exec, game.art_cover)
-                                .with_executable(game.executable)
-                                .with_launch_key(game.launch_key.clone()),
-                        );
-                    }
-                }
-            }
-        }
+    for root in heroic_roots.iter().filter(|r| r.exists()) {
+        scan_heroic_root(root, &mut games, &mut seen_app_names);
     }
 
     games
+}
+
+fn scan_heroic_root(root: &Path, games: &mut Vec<AppEntry>, seen: &mut HashSet<String>) {
+    let store_cache = root.join("store_cache");
+
+    // 1. Store Libraries
+    for (file, store) in [
+        ("legendary_library.json", "legendary"),
+        ("gog_library.json", "gog"),
+        ("nile_library.json", "nile"),
+    ] {
+        process_heroic_file(&store_cache.join(file), store, games, seen);
+    }
+
+    // 2. Sideloads
+    // Primary: sideload_apps/library.json
+    // Fallback: store_cache/sideload_cache.json (legacy format)
+    process_heroic_file(
+        &root.join("sideload_apps/library.json"),
+        "sideload",
+        games,
+        seen,
+    );
+    process_heroic_file(
+        &store_cache.join("sideload_cache.json"),
+        "sideload",
+        games,
+        seen,
+    );
+}
+
+fn process_heroic_file(
+    path: &Path,
+    store_hint: &str,
+    games: &mut Vec<AppEntry>,
+    seen: &mut HashSet<String>,
+) {
+    if let Some(contents) = read_file_if_exists(path) {
+        for game in parse_heroic_library_json(&contents, store_hint) {
+            if !is_ignored_app(&game.title, &game.app_name) && seen.insert(game.app_name.clone()) {
+                let exec = heroic_exec(&game.store, &game.app_name);
+                games.push(
+                    AppEntry::new(game.title, exec, game.art_cover)
+                        .with_executable(game.executable)
+                        .with_launch_key(game.launch_key.clone()),
+                );
+            }
+        }
+    }
 }
 
 fn read_file_if_exists(path: &Path) -> Option<String> {
