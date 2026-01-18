@@ -218,3 +218,120 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
         })
         .into()
 }
+
+pub fn render_app_not_found_modal<'a>(
+    item_name: &str,
+    selected_index: usize,
+) -> Element<'a, Message> {
+    let title = Text::new("App Not Found")
+        .font(SANSATION)
+        .size(26)
+        .color(Color::WHITE);
+
+    let title_container = Container::new(title)
+        .padding(10)
+        .width(Length::Fill)
+        .center_x(Length::Fill);
+
+    let message = Text::new(format!(
+        "{} is no longer installed. Remove it from your list?",
+        item_name
+    ))
+    .font(SANSATION)
+    .size(18)
+    .color(COLOR_TEXT_BRIGHT)
+    .align_x(Horizontal::Center);
+
+    let message_container = Container::new(message)
+        .padding(10)
+        .width(Length::Fill)
+        .center_x(Length::Fill);
+
+    let options = ["Remove", "Cancel"];
+
+    let options_row = Row::with_children(
+        options
+            .iter()
+            .enumerate()
+            .map(|(index, &label)| modal_button(label, index == selected_index)),
+    )
+    .spacing(20);
+
+    let options_container = Container::new(options_row)
+        .padding(10)
+        .width(Length::Fill)
+        .center_x(Length::Fill);
+
+    let modal_column = Column::new()
+        .push(title_container)
+        .push(message_container)
+        .push(options_container)
+        .spacing(10);
+
+    let modal_box = Container::new(modal_column)
+        .width(Length::Fixed(560.0))
+        .padding(20)
+        .style(|_| iced::widget::container::Style {
+            background: Some(COLOR_PANEL.into()),
+            border: iced::Border {
+                color: Color::WHITE,
+                width: 1.0,
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        });
+
+    Container::new(modal_box)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(|_| iced::widget::container::Style {
+            background: Some(COLOR_OVERLAY_STRONG.into()),
+            ..Default::default()
+        })
+        .into()
+}
+
+fn modal_button<'a>(label: &'a str, is_selected: bool) -> Element<'a, Message> {
+    let text = Text::new(label)
+        .font(SANSATION)
+        .size(18)
+        .color(if is_selected {
+            Color::WHITE
+        } else {
+            COLOR_TEXT_MUTED
+        })
+        .align_x(Horizontal::Center);
+
+    Container::new(text)
+        .padding(12)
+        .width(Length::Fixed(140.0))
+        .center_x(Length::Fill)
+        .style(move |_| {
+            if is_selected {
+                iced::widget::container::Style {
+                    background: Some(COLOR_ACCENT.into()),
+                    text_color: Some(Color::WHITE),
+                    border: iced::Border {
+                        color: Color::WHITE,
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    ..Default::default()
+                }
+            } else {
+                iced::widget::container::Style {
+                    background: Some(COLOR_PANEL.into()),
+                    text_color: Some(COLOR_TEXT_MUTED),
+                    border: iced::Border {
+                        color: COLOR_TEXT_MUTED,
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    ..Default::default()
+                }
+            }
+        })
+        .into()
+}

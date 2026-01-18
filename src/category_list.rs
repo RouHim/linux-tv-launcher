@@ -78,6 +78,13 @@ impl CategoryList {
         }
     }
 
+    pub fn remove_item_by_id(&mut self, id: Uuid) -> Option<LauncherItem> {
+        let index = self.items.iter().position(|item| item.id == id)?;
+        let removed = self.items.remove(index);
+        self.clamp_index();
+        Some(removed)
+    }
+
     fn clamp_index(&mut self) {
         let len = self.items.len();
         if len == 0 {
@@ -194,6 +201,20 @@ mod tests {
 
         // Remove from empty - returns None
         assert!(list.remove_selected().is_none());
+    }
+
+    #[test]
+    fn test_remove_item_by_id() {
+        let mut list = CategoryList::new(vec![item("A"), item("B"), item("C")]);
+        let target_id = list.items[1].id;
+
+        let removed = list.remove_item_by_id(target_id).unwrap();
+        assert_eq!(removed.name, "B");
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(list.items[0].name, "A");
+        assert_eq!(list.items[1].name, "C");
+
+        assert!(list.remove_item_by_id(target_id).is_none());
     }
 
     #[test]

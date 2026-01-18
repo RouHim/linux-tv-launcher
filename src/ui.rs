@@ -1,7 +1,7 @@
 use iced::keyboard::{self, key::Named, Key};
 use iced::widget::operation;
 
-use crate::ui_modals::{render_context_menu, render_help_modal};
+use crate::ui_modals::{render_app_not_found_modal, render_context_menu, render_help_modal};
 use crate::ui_system_update_modal::render_system_update_modal;
 use crate::ui_theme::*;
 use iced::window;
@@ -16,6 +16,7 @@ use rayon::prelude::*;
 use std::env;
 use std::path::PathBuf;
 use std::time::Duration;
+use uuid::Uuid;
 
 use crate::assets::get_default_icon;
 use crate::category_list::CategoryList;
@@ -26,7 +27,7 @@ use crate::game_sources::scan_games;
 use crate::gamepad::{gamepad_subscription, GamepadEvent, GamepadInfo};
 use crate::image_cache::ImageCache;
 use crate::input::Action;
-use crate::launcher::{launch_app, resolve_monitor_target};
+use crate::launcher::{launch_app, resolve_monitor_target, LaunchError};
 use crate::messages::Message;
 use crate::model::{AppEntry, Category, LauncherAction, LauncherItem};
 use crate::osk::OskManager;
@@ -634,6 +635,11 @@ impl Launcher {
             ModalState::AppPicker(state) => Some(render_app_picker(state, &self.available_apps)),
             ModalState::SystemUpdate(state) => Some(render_system_update_modal(state)),
             ModalState::SystemInfo(info) => Some(render_system_info_modal(info)),
+            ModalState::AppNotFound {
+                item_name,
+                selected_index,
+                ..
+            } => Some(render_app_not_found_modal(item_name, *selected_index)),
             ModalState::Help => Some(render_help_modal()),
             ModalState::None => None,
         }
@@ -719,6 +725,7 @@ impl Launcher {
             ModalState::AppPicker(_) => Some(self.handle_app_picker_navigation(action)),
             ModalState::SystemUpdate(_) => Some(self.handle_system_update_navigation(action)),
             ModalState::SystemInfo(_) => Some(self.handle_system_info_navigation(action)),
+            ModalState::AppNotFound { .. } => Some(self.handle_app_not_found_navigation(action)),
             ModalState::None => None,
         }
     }
@@ -926,6 +933,44 @@ impl Launcher {
         Task::none()
     }
 
+    fn handle_app_not_found_navigation(&mut self, action: Action) -> Task<Message> {
+        let (item_id, item_name, category, mut selected_index) = match &self.modal {
+            ModalState::AppNotFound {
+                item_id,
+                item_name,
+                category,
+                selected_index,
+            } => (*item_id, item_name.clone(), *category, *selected_index),
+            _ => return Task::none(),
+        };
+
+        match action {
+            Action::Left | Action::Right | Action::Up | Action::Down => {
+                selected_index = if selected_index == 0 { 1 } else { 0 };
+            }
+            Action::Select => {
+                if selected_index == 0 {
+                    self.remove_missing_item(item_id, &item_name, category);
+                }
+                self.modal = ModalState::None;
+                return Task::none();
+            }
+            Action::Back | Action::ContextMenu | Action::ShowHelp => {
+                self.modal = ModalState::None;
+                return Task::none();
+            }
+            _ => {}
+        }
+
+        self.modal = ModalState::AppNotFound {
+            item_id,
+            item_name,
+            category,
+            selected_index,
+        };
+        Task::none()
+    }
+
     fn handle_system_update_navigation(&mut self, action: Action) -> Task<Message> {
         if let ModalState::SystemUpdate(state) = &self.modal {
             match &state.status {
@@ -1057,10 +1102,7 @@ impl Launcher {
 
         match &item.action {
             LauncherAction::Launch { exec } => {
-                // Record launch timestamp
-                self.record_launch_timestamp(&item);
-
-                self.launch_app(exec, &item.name, item.game_executable.as_ref())
+                self.launch_app(exec, &item, item.game_executable.as_ref())
             }
             LauncherAction::SystemUpdate => self.update(Message::StartSystemUpdate),
             LauncherAction::SystemInfo => self.update(Message::OpenSystemInfo),
@@ -1108,18 +1150,40 @@ impl Launcher {
         }
     }
 
+    fn remove_missing_item(&mut self, item_id: Uuid, item_name: &str, category: Category) {
+        let removed = match category {
+            Category::Apps => self.apps.remove_item_by_id(item_id).is_some(),
+            Category::Games => {
+                if let Some(removed_item) = self.games.remove_item_by_id(item_id) {
+                    if let Some(launch_key) = removed_item.launch_key.as_ref() {
+                        self.game_launch_history.remove(launch_key);
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            Category::System => false,
+        };
+
+        if removed {
+            self.save_apps_config("Removed", "removing", item_name);
+        }
+    }
+
     /// Launch an application with proper process monitoring
     fn launch_app(
         &mut self,
         exec: &str,
-        item_name: &str,
+        item: &LauncherItem,
         game_executable: Option<&String>,
     ) -> Task<Message> {
-        let monitor_target = resolve_monitor_target(exec, item_name, game_executable);
+        let monitor_target = resolve_monitor_target(exec, &item.name, game_executable);
 
         match launch_app(exec) {
             Ok(pid) => {
                 self.game_running = true;
+                self.record_launch_timestamp(item);
 
                 // Optimization: Always check the main PID first.
                 // If the direct PID is running, we avoid the expensive full-system scan
@@ -1139,6 +1203,15 @@ impl Launcher {
                 } else {
                     monitor_task
                 }
+            }
+            Err(LaunchError::CommandNotFound { .. }) => {
+                self.modal = ModalState::AppNotFound {
+                    item_id: item.id,
+                    item_name: item.name.clone(),
+                    category: self.category,
+                    selected_index: 0,
+                };
+                Task::none()
             }
             Err(err) => {
                 self.status_message = Some(err.to_string());
