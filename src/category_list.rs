@@ -112,33 +112,20 @@ impl CategoryList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{LauncherAction, LauncherItem};
+    use crate::model::LauncherItem;
 
     fn item(name: &str) -> LauncherItem {
         LauncherItem {
-            id: Uuid::new_v4(),
             name: name.to_string(),
-            icon: None,
-            system_icon: None,
-            action: LauncherAction::Exit,
-            source_image_url: None,
-            game_executable: None,
-            launch_key: None,
-            last_started: None,
+            ..Default::default()
         }
     }
 
     fn item_with_timestamp(name: &str, timestamp: i64) -> LauncherItem {
         LauncherItem {
-            id: Uuid::new_v4(),
             name: name.to_string(),
-            icon: None,
-            system_icon: None,
-            action: LauncherAction::Exit,
-            source_image_url: None,
-            game_executable: None,
-            launch_key: None,
             last_started: Some(timestamp),
+            ..Default::default()
         }
     }
 

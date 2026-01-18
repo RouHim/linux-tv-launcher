@@ -1,4 +1,5 @@
 use crate::model::AppEntry;
+use crate::simple64::scan_simple64_games;
 use directories::BaseDirs;
 use rayon::prelude::*;
 use serde_json::Value;
@@ -8,13 +9,18 @@ use std::path::{Path, PathBuf};
 
 /// Scan all game sources (Steam, Heroic) in parallel and return unique entries
 pub fn scan_games() -> Vec<AppEntry> {
-    // Scan Steam and Heroic games concurrently
-    let (steam_games, heroic_games) = rayon::join(scan_steam_games, scan_heroic_games);
+    // Scan Steam, Heroic, and Simple64 games concurrently
+    let ((steam_games, heroic_games), simple64_games) = rayon::join(
+        || rayon::join(scan_steam_games, scan_heroic_games),
+        scan_simple64_games,
+    );
 
     // Combine results
-    let mut games = Vec::new();
+    let mut games =
+        Vec::with_capacity(steam_games.len() + heroic_games.len() + simple64_games.len());
     games.extend(steam_games);
     games.extend(heroic_games);
+    games.extend(simple64_games);
 
     // Sort and deduplicate
     games.sort_by(|a, b| a.name.cmp(&b.name).then(a.exec.cmp(&b.exec)));
@@ -87,7 +93,7 @@ fn scan_steam_games() -> Vec<AppEntry> {
 fn parse_steam_manifest_file(path: &Path) -> Option<AppEntry> {
     let appid_from_name = appid_from_manifest_path(path);
     let contents = fs::read_to_string(path).ok()?;
-    let mut manifest = parse_steam_manifest(&contents).or(None)?;
+    let mut manifest = parse_steam_manifest(&contents)?;
 
     if manifest.appid.is_empty() {
         if let Some(appid) = appid_from_name {
@@ -102,7 +108,8 @@ fn parse_steam_manifest_file(path: &Path) -> Option<AppEntry> {
     let exec = format!("steam -applaunch {}", manifest.appid);
     Some(
         AppEntry::new(manifest.name, exec, None)
-            .with_launch_key(format!("steam:{}", manifest.appid)),
+            .with_launch_key(format!("steam:{}", manifest.appid))
+            .with_steam_appid(manifest.appid),
     )
 }
 

@@ -13,6 +13,7 @@ mod messages;
 mod model;
 mod osk;
 mod searxng;
+mod simple64;
 mod steamgriddb;
 mod storage;
 mod sys_utils;

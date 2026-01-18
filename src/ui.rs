@@ -319,12 +319,18 @@ impl Launcher {
                     let game_id = game.id;
                     let game_name = game.name.clone();
                     let source_image_url = game.source_image_url.clone();
+                    let steam_appid = game.steam_appid.clone();
                     let pipeline = pipeline_template.clone();
 
                     Task::perform(
                         async move {
                             tokio::task::spawn_blocking(move || {
-                                pipeline.fetch(game_id, &game_name, source_image_url.as_deref())
+                                pipeline.fetch(
+                                    game_id,
+                                    &game_name,
+                                    source_image_url.as_deref(),
+                                    steam_appid.as_deref(),
+                                )
                             })
                             .await
                             .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
@@ -1218,6 +1224,7 @@ impl Launcher {
                     launch_key: item.launch_key.clone(),
                     game_executable: item.game_executable.clone(),
                     last_started: item.last_started,
+                    steam_appid: item.steam_appid.clone(),
                 }),
 
                 _ => None,

@@ -66,6 +66,7 @@ pub struct LauncherItem {
     pub launch_key: Option<String>,
     /// Unix timestamp of when this item was last started via the launcher
     pub last_started: Option<i64>,
+    pub steam_appid: Option<String>,
 }
 
 impl LauncherItem {
@@ -90,76 +91,67 @@ impl LauncherItem {
             game_executable: entry.game_executable,
             launch_key: entry.launch_key,
             last_started: entry.last_started,
+            steam_appid: entry.steam_appid,
+        }
+    }
+
+    fn new_system(name: &str, system_icon: SystemIcon, action: LauncherAction) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            name: name.to_string(),
+            icon: None,
+            system_icon: Some(system_icon),
+            action,
+            source_image_url: None,
+            game_executable: None,
+            launch_key: None,
+            last_started: None,
+            steam_appid: None,
         }
     }
 
     pub fn system_update() -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            name: "Update System".to_string(),
-            icon: None,
-            system_icon: Some(SystemIcon::ArrowsRotate),
-            action: LauncherAction::SystemUpdate,
-            source_image_url: None,
-            game_executable: None,
-            launch_key: None,
-            last_started: None,
-        }
+        Self::new_system(
+            "Update System",
+            SystemIcon::ArrowsRotate,
+            LauncherAction::SystemUpdate,
+        )
     }
 
     pub fn system_info() -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            name: "System Info".to_string(),
-            icon: None,
-            system_icon: Some(SystemIcon::Info),
-            action: LauncherAction::SystemInfo,
-            source_image_url: None,
-            game_executable: None,
-            launch_key: None,
-            last_started: None,
-        }
+        Self::new_system("System Info", SystemIcon::Info, LauncherAction::SystemInfo)
     }
 
     pub fn shutdown() -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            name: "Shutdown".to_string(),
-            icon: None,
-            system_icon: Some(SystemIcon::PowerOff),
-            action: LauncherAction::Shutdown,
-            source_image_url: None,
-            game_executable: None,
-            launch_key: None,
-            last_started: None,
-        }
+        Self::new_system("Shutdown", SystemIcon::PowerOff, LauncherAction::Shutdown)
     }
 
     pub fn suspend() -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            name: "Suspend".to_string(),
-            icon: None,
-            system_icon: Some(SystemIcon::Pause),
-            action: LauncherAction::Suspend,
-            source_image_url: None,
-            game_executable: None,
-            launch_key: None,
-            last_started: None,
-        }
+        Self::new_system("Suspend", SystemIcon::Pause, LauncherAction::Suspend)
     }
 
     pub fn exit() -> Self {
+        Self::new_system(
+            "Exit Launcher",
+            SystemIcon::ExitBracket,
+            LauncherAction::Exit,
+        )
+    }
+}
+
+impl Default for LauncherItem {
+    fn default() -> Self {
         Self {
             id: Uuid::new_v4(),
-            name: "Exit Launcher".to_string(),
+            name: String::new(),
             icon: None,
-            system_icon: Some(SystemIcon::ExitBracket),
+            system_icon: None,
             action: LauncherAction::Exit,
             source_image_url: None,
             game_executable: None,
             launch_key: None,
             last_started: None,
+            steam_appid: None,
         }
     }
 }
@@ -178,6 +170,9 @@ pub struct AppEntry {
     /// Unix timestamp of when this app was last started via the launcher
     #[serde(default)]
     pub last_started: Option<i64>,
+    /// Optional Steam App ID for better metadata lookup
+    #[serde(default)]
+    pub steam_appid: Option<String>,
 }
 
 impl AppEntry {
@@ -190,6 +185,7 @@ impl AppEntry {
             launch_key: None,
             game_executable: None,
             last_started: None,
+            steam_appid: None,
         }
     }
 
@@ -200,6 +196,11 @@ impl AppEntry {
 
     pub fn with_launch_key(mut self, launch_key: String) -> Self {
         self.launch_key = Some(launch_key);
+        self
+    }
+
+    pub fn with_steam_appid(mut self, appid: impl Into<String>) -> Self {
+        self.steam_appid = Some(appid.into());
         self
     }
 }
