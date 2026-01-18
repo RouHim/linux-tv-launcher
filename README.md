@@ -1,6 +1,21 @@
-# Linux TV Launcher
+<p align="center">
+  <img src="assets/banner.svg" alt="Linux TV Launcher" width="100%">
+</p>
 
-A fullscreen, couch-friendly launcher for Linux built with Rust and Iced. It prioritizes gamepad navigation, scans popular game libraries, and provides system tools tailored for living-room setups.
+<p align="center">
+  <a href="https://github.com/RouHim/linux-tv-launcher/actions/workflows/ci.yml"><img src="https://github.com/RouHim/linux-tv-launcher/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/RouHim/linux-tv-launcher/releases/latest"><img src="https://img.shields.io/github/v/release/RouHim/linux-tv-launcher" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
+  <img src="https://img.shields.io/badge/platform-linux-lightgrey" alt="Platform">
+  <img src="https://img.shields.io/badge/rust-2021-orange" alt="Rust">
+</p>
+
+<p align="center">
+  <strong>A fullscreen, couch-friendly launcher for Linux built with Rust and Iced.</strong><br>
+  Prioritizes gamepad navigation, scans popular game libraries, and provides system tools tailored for living-room setups.
+</p>
+
+---
 
 ## Features
 
@@ -13,6 +28,21 @@ A fullscreen, couch-friendly launcher for Linux built with Rust and Iced. It pri
 - **Self-updater** that checks GitHub releases on startup.
 
 ## Installation
+
+### Download Pre-built Binaries
+
+Download the latest release for your architecture from [GitHub Releases](https://github.com/RouHim/linux-tv-launcher/releases/latest):
+
+| Architecture | Binary |
+|--------------|--------|
+| x86_64 | `linux-tv-launcher-x86_64-unknown-linux-gnu` |
+| ARM64 | `linux-tv-launcher-aarch64-unknown-linux-gnu` |
+
+```bash
+# Example: Download and run (x86_64)
+chmod +x linux-tv-launcher-x86_64-unknown-linux-gnu
+./linux-tv-launcher-x86_64-unknown-linux-gnu
+```
 
 ### From Source
 
@@ -54,7 +84,7 @@ A fullscreen, couch-friendly launcher for Linux built with Rust and Iced. It pri
 - **D-pad / Left Stick**: Navigate
 - **LB / LT**: Previous category
 - **RB / RT**: Next category
-- **Select / −**: Show controls
+- **Select / -**: Show controls
 
 **Keyboard**
 - **Arrow Keys**: Navigate
@@ -63,7 +93,7 @@ A fullscreen, couch-friendly launcher for Linux built with Rust and Iced. It pri
 - **Tab**: Next category
 - **C**: Context menu
 - **+ / A**: Add app (Apps category)
-- **−**: Show controls
+- **-**: Show controls
 - **F4**: Quit launcher
 
 ## Configuration
@@ -77,39 +107,3 @@ Supported settings:
 - `steamgriddb_api_key`: API key for SteamGridDB. You can also set `STEAMGRIDDB_API_KEY` as an environment variable.
 - `apps`: saved app entries from the picker.
 - `game_launch_history`: launch timestamps used for sorting.
-
-## Development
-
-### Commands
-
-- `cargo run` — run in development
-- `cargo test` — run tests
-- `cargo fmt` — format code
-- `cargo clippy` — lint
-
-### Project Structure
-
-- `src/main.rs`: application entry point
-- `src/ui.rs`: main UI update/view loop
-- `src/game_sources.rs`: Steam + Heroic discovery
-- `src/desktop_apps.rs`: XDG `.desktop` scanning for app picker
-- `src/game_image_fetcher.rs`: cover art pipeline
-- `src/system_update.rs`: system update workflow (Arch-based)
-- `src/system_info.rs`: system diagnostics collection
-- `src/storage.rs`: config persistence
-- `src/assets.rs`: embedded assets
-
-### Architecture
-
-- [Process Monitoring & Focus Management](docs/process_monitoring.md)
-
-## Contributing
-
-Contributions welcome! Please:
-
-- Run `cargo fmt`, `cargo clippy`, and `cargo test`
-- Keep changes focused and aligned with existing architecture
-
-## Support
-
-For issues and feature requests, please use GitHub Issues.

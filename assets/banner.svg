@@ -1,23 +1,97 @@
 <svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg">
-  <!-- Gradient background -->
   <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a1a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#333333;stop-opacity:1" />
+    <!-- Background gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a2a3a;stop-opacity:1" />
     </linearGradient>
+    <!-- Screen gradient -->
+    <linearGradient id="screenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e1e2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a2a3a;stop-opacity:1" />
+    </linearGradient>
+    <!-- Tux body gradient -->
+    <linearGradient id="tuxGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#555565;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#404050;stop-opacity:1" />
+    </linearGradient>
+    <!-- Glow filter -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <rect width="1280" height="640" fill="url(#grad)"/>
-  <!-- Logo -->
-  <g transform="translate(100, 200)">
-    <rect width="128" height="80" rx="16" fill="#333"/>
-    <circle cx="32" cy="40" r="12" fill="#666"/>
-    <circle cx="96" cy="40" r="8" fill="#999"/>
-    <rect x="16" y="52" width="8" height="20" fill="#fff"/>
-    <rect x="8" y="60" width="20" height="8" fill="#fff"/>
-    <circle cx="112" cy="32" r="8" fill="#ff4444"/>
-    <circle cx="120" cy="48" r="8" fill="#44ff44"/>
+  
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bgGrad)"/>
+  
+  <!-- Decorative grid pattern -->
+  <g opacity="0.05">
+    <line x1="0" y1="160" x2="1280" y2="160" stroke="#ffffff" stroke-width="1"/>
+    <line x1="0" y1="320" x2="1280" y2="320" stroke="#ffffff" stroke-width="1"/>
+    <line x1="0" y1="480" x2="1280" y2="480" stroke="#ffffff" stroke-width="1"/>
+    <line x1="320" y1="0" x2="320" y2="640" stroke="#ffffff" stroke-width="1"/>
+    <line x1="640" y1="0" x2="640" y2="640" stroke="#ffffff" stroke-width="1"/>
+    <line x1="960" y1="0" x2="960" y2="640" stroke="#ffffff" stroke-width="1"/>
   </g>
+  
+  <!-- Logo: TV with Tux (scaled up version of icon) -->
+  <g transform="translate(120, 160)">
+    <!-- TV Frame -->
+    <rect x="0" y="0" width="216" height="152" rx="20" ry="20" fill="#383848"/>
+    
+    <!-- Screen -->
+    <rect x="12" y="12" width="192" height="128" rx="12" ry="12" fill="url(#screenGrad)"/>
+    
+    <!-- Tux Silhouette on Screen -->
+    <!-- Body -->
+    <ellipse cx="108" cy="84" rx="36" ry="40" fill="url(#tuxGrad)"/>
+    
+    <!-- Belly -->
+    <ellipse cx="108" cy="90" rx="24" ry="28" fill="#e8e8f0"/>
+    
+    <!-- Head -->
+    <ellipse cx="108" cy="36" rx="28" ry="24" fill="url(#tuxGrad)"/>
+    
+    <!-- Eyes -->
+    <ellipse cx="96" cy="32" rx="8" ry="10" fill="#ffffff"/>
+    <ellipse cx="120" cy="32" rx="8" ry="10" fill="#ffffff"/>
+    <circle cx="98" cy="34" r="4" fill="#1a1a2a"/>
+    <circle cx="122" cy="34" r="4" fill="#1a1a2a"/>
+    
+    <!-- Beak -->
+    <ellipse cx="108" cy="48" rx="12" ry="6" fill="#ffaa44"/>
+    
+    <!-- Feet -->
+    <ellipse cx="88" cy="120" rx="12" ry="6" fill="#ffaa44"/>
+    <ellipse cx="128" cy="120" rx="12" ry="6" fill="#ffaa44"/>
+    
+    <!-- TV Stand -->
+    <rect x="72" y="152" width="72" height="10" rx="4" ry="4" fill="#383848"/>
+    <rect x="52" y="162" width="112" height="16" rx="6" ry="6" fill="#2a2a35"/>
+    
+    <!-- Power LED -->
+    <circle cx="196" cy="136" r="6" fill="#44dd66" filter="url(#glow)"/>
+  </g>
+  
   <!-- Title -->
-  <text x="350" y="320" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="#fff">Linux TV Launcher</text>
-  <text x="350" y="380" font-family="Arial, sans-serif" font-size="36" fill="#ccc">Modern Game Launcher for Linux TVs</text>
+  <text x="400" y="280" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="#ffffff">Linux TV Launcher</text>
+  
+  <!-- Tagline -->
+  <text x="400" y="360" font-family="Arial, sans-serif" font-size="36" fill="#aaaacc">Modern Game Launcher for Linux TVs</text>
+  
+  <!-- Feature highlights -->
+  <g transform="translate(400, 420)" font-family="Arial, sans-serif" font-size="24" fill="#888899">
+    <circle cx="0" cy="-8" r="6" fill="#44dd66"/>
+    <text x="20" y="0">Controller Support</text>
+    
+    <circle cx="280" cy="-8" r="6" fill="#44dd66"/>
+    <text x="300" y="0">10-foot UI</text>
+    
+    <circle cx="480" cy="-8" r="6" fill="#44dd66"/>
+    <text x="500" y="0">Open Source</text>
+  </g>
 </svg>
