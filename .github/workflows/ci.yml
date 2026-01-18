@@ -90,16 +90,16 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Strip binary
-        run: strip target/x86_64-unknown-linux-gnu/release/linux-tv-launcher
+        run: strip target/x86_64-unknown-linux-gnu/release/rhinco-tv
 
       - name: Package binary
-        run: install -m 755 target/x86_64-unknown-linux-gnu/release/linux-tv-launcher linux-tv-launcher-x86_64-unknown-linux-gnu
+        run: install -m 755 target/x86_64-unknown-linux-gnu/release/rhinco-tv rhinco-tv-x86_64-unknown-linux-gnu
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: linux-tv-launcher-x86_64-unknown-linux-gnu
-          path: linux-tv-launcher-x86_64-unknown-linux-gnu
+          name: rhinco-tv-x86_64-unknown-linux-gnu
+          path: rhinco-tv-x86_64-unknown-linux-gnu
           retention-days: 1
 
   build-arm64:
@@ -127,16 +127,16 @@ jobs:
         run: cargo build --release --target aarch64-unknown-linux-gnu
 
       - name: Strip binary
-        run: strip target/aarch64-unknown-linux-gnu/release/linux-tv-launcher
+        run: strip target/aarch64-unknown-linux-gnu/release/rhinco-tv
 
       - name: Package binary
-        run: install -m 755 target/aarch64-unknown-linux-gnu/release/linux-tv-launcher linux-tv-launcher-aarch64-unknown-linux-gnu
+        run: install -m 755 target/aarch64-unknown-linux-gnu/release/rhinco-tv rhinco-tv-aarch64-unknown-linux-gnu
 
       - name: Upload artifact
         uses: actions/upload-artifact@v6
         with:
-          name: linux-tv-launcher-aarch64-unknown-linux-gnu
-          path: linux-tv-launcher-aarch64-unknown-linux-gnu
+          name: rhinco-tv-aarch64-unknown-linux-gnu
+          path: rhinco-tv-aarch64-unknown-linux-gnu
           retention-days: 1
 
   release:
@@ -169,20 +169,20 @@ jobs:
       - name: Download x64 artifact
         uses: actions/download-artifact@v7
         with:
-          name: linux-tv-launcher-x86_64-unknown-linux-gnu
+          name: rhinco-tv-x86_64-unknown-linux-gnu
           path: ./release-artifacts/x86_64-unknown-linux-gnu
 
       - name: Download ARM64 artifact
         uses: actions/download-artifact@v7
         with:
-          name: linux-tv-launcher-aarch64-unknown-linux-gnu
+          name: rhinco-tv-aarch64-unknown-linux-gnu
           path: ./release-artifacts/aarch64-unknown-linux-gnu
 
       - name: Prepare release artifacts
         run: |
           # Move and rename artifacts to the expected location for semantic-release
-          mv ./release-artifacts/x86_64-unknown-linux-gnu/linux-tv-launcher-x86_64-unknown-linux-gnu ./release-artifacts/linux-tv-launcher-x86_64-unknown-linux-gnu
-          mv ./release-artifacts/aarch64-unknown-linux-gnu/linux-tv-launcher-aarch64-unknown-linux-gnu ./release-artifacts/linux-tv-launcher-aarch64-unknown-linux-gnu
+          mv ./release-artifacts/x86_64-unknown-linux-gnu/rhinco-tv-x86_64-unknown-linux-gnu ./release-artifacts/rhinco-tv-x86_64-unknown-linux-gnu
+          mv ./release-artifacts/aarch64-unknown-linux-gnu/rhinco-tv-aarch64-unknown-linux-gnu ./release-artifacts/rhinco-tv-aarch64-unknown-linux-gnu
           
           # Clean up empty directories
           rmdir ./release-artifacts/x86_64-unknown-linux-gnu ./release-artifacts/aarch64-unknown-linux-gnu

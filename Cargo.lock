@@ -2427,33 +2427,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df1d3c3b53da64cf5760482273a98e575c651a67eec7f77df96b5b642de8f039"
 
 [[package]]
-name = "linux-tv-launcher"
-version = "1.2.0"
-dependencies = [
- "anyhow",
- "chrono",
- "directories",
- "gilrs",
- "iced",
- "iced_fonts",
- "image",
- "mimalloc",
- "procfs",
- "rayon",
- "rust-embed",
- "self_update",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "ureq",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
 name = "litemap"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3867,6 +3840,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c6a884d2998352bb4daf0183589aec883f16a6da1f4dde84d8e2e9a5409a1ce"
 dependencies = [
  "bytemuck",
+]
+
+[[package]]
+name = "rhinco-tv"
+version = "1.2.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "directories",
+ "gilrs",
+ "iced",
+ "iced_fonts",
+ "image",
+ "mimalloc",
+ "procfs",
+ "rayon",
+ "rust-embed",
+ "self_update",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "ureq",
+ "urlencoding",
+ "uuid",
 ]
 
 [[package]]

@@ -136,7 +136,7 @@ impl Launcher {
     }
 
     pub fn title(&self) -> String {
-        String::from("Linux TV Launcher")
+        String::from("RhincoTV")
     }
 
     fn current_category_list(&self) -> &CategoryList {

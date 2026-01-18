@@ -19,7 +19,7 @@ pub struct AppConfig {
 /// Returns the project directories for this application.
 /// Centralized to ensure consistent paths across all modules.
 pub fn project_dirs() -> Result<ProjectDirs> {
-    ProjectDirs::from("com", "linux-tv-launcher", "linux-tv-launcher")
+    ProjectDirs::from("com", "rhinco-tv", "rhinco-tv")
         .context("Could not determine project directories")
 }
 

@@ -32,15 +32,15 @@
       {
         "assets": [
           {
-            "path": "release-artifacts/linux-tv-launcher-x86_64-unknown-linux-gnu",
+            "path": "release-artifacts/rhinco-tv-x86_64-unknown-linux-gnu",
             "label": "x86_64 Linux (gnu, raw binary)"
           },
           {
-            "path": "release-artifacts/linux-tv-launcher-aarch64-unknown-linux-gnu",
+            "path": "release-artifacts/rhinco-tv-aarch64-unknown-linux-gnu",
             "label": "ARM64 Linux (gnu, raw binary)"
           }
         ],
-        "successComment": "This release has been published! Download the binaries for your platform:\n\n- **x86_64**: linux-tv-launcher-x86_64-unknown-linux-gnu\n- **ARM64**: linux-tv-launcher-aarch64-unknown-linux-gnu\n\nThese are raw binaries; `self_update` will automatically fetch and install the correct asset."
+        "successComment": "This release has been published! Download the binaries for your platform:\n\n- **x86_64**: rhinco-tv-x86_64-unknown-linux-gnu\n- **ARM64**: rhinco-tv-aarch64-unknown-linux-gnu\n\nThese are raw binaries; `self_update` will automatically fetch and install the correct asset."
       }
     ]
   ]

@@ -6,8 +6,8 @@ pub fn check_for_updates() -> Result<bool, String> {
 
     let updater = self_update::backends::github::Update::configure()
         .repo_owner("RouHim")
-        .repo_name("linux-tv-launcher")
-        .bin_name("linux-tv-launcher")
+        .repo_name("rhinco-tv")
+        .bin_name("rhinco-tv")
         .show_download_progress(false) // Disable progress to avoid console output in GUI
         .no_confirm(no_confirm)
         .current_version(cargo_crate_version!())

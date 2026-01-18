@@ -10,7 +10,7 @@ pub struct ImageCache {
 
 impl ImageCache {
     pub fn new() -> Result<Self> {
-        let dirs = ProjectDirs::from("com", "rouven", "linux-tv-launcher")
+        let dirs = ProjectDirs::from("com", "rhinco-tv", "rhinco-tv")
             .context("Failed to determine project directories")?;
         let cache_dir = dirs.cache_dir().join("grids");
         fs::create_dir_all(&cache_dir).context("Failed to create cache directory")?;

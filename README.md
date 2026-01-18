@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="Linux TV Launcher" width="100%">
+  <img src="assets/banner.svg" alt="RhincoTV" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/RouHim/linux-tv-launcher/actions/workflows/ci.yml"><img src="https://github.com/RouHim/linux-tv-launcher/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/RouHim/linux-tv-launcher/releases/latest"><img src="https://img.shields.io/github/v/release/RouHim/linux-tv-launcher" alt="Release"></a>
+  <a href="https://github.com/RouHim/rhinco-tv/actions/workflows/ci.yml"><img src="https://github.com/RouHim/rhinco-tv/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/RouHim/rhinco-tv/releases/latest"><img src="https://img.shields.io/github/v/release/RouHim/rhinco-tv" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License"></a>
   <img src="https://img.shields.io/badge/platform-linux-lightgrey" alt="Platform">
   <img src="https://img.shields.io/badge/rust-2021-orange" alt="Rust">
@@ -31,17 +31,17 @@
 
 ### Download Pre-built Binaries
 
-Download the latest release for your architecture from [GitHub Releases](https://github.com/RouHim/linux-tv-launcher/releases/latest):
+Download the latest release for your architecture from [GitHub Releases](https://github.com/RouHim/rhinco-tv/releases/latest):
 
 | Architecture | Binary |
 |--------------|--------|
-| x86_64 | `linux-tv-launcher-x86_64-unknown-linux-gnu` |
-| ARM64 | `linux-tv-launcher-aarch64-unknown-linux-gnu` |
+| x86_64 | `rhinco-tv-x86_64-unknown-linux-gnu` |
+| ARM64 | `rhinco-tv-aarch64-unknown-linux-gnu` |
 
 ```bash
 # Example: Download and run (x86_64)
-chmod +x linux-tv-launcher-x86_64-unknown-linux-gnu
-./linux-tv-launcher-x86_64-unknown-linux-gnu
+chmod +x rhinco-tv-x86_64-unknown-linux-gnu
+./rhinco-tv-x86_64-unknown-linux-gnu
 ```
 
 ### From Source
@@ -49,13 +49,13 @@ chmod +x linux-tv-launcher-x86_64-unknown-linux-gnu
 1. Install the Rust toolchain.
 2. Clone the repository:
    ```bash
-   git clone https://github.com/RouHim/linux-tv-launcher.git
-   cd linux-tv-launcher
+   git clone https://github.com/RouHim/rhinco-tv.git
+   cd rhinco-tv
    ```
 3. Build and run:
    ```bash
    cargo build --release
-   ./target/release/linux-tv-launcher
+   ./target/release/rhinco-tv
    ```
 
 ## Runtime Notes
@@ -100,7 +100,7 @@ chmod +x linux-tv-launcher-x86_64-unknown-linux-gnu
 
 Configuration is stored at:
 
-- `~/.config/com/linux-tv-launcher/linux-tv-launcher/config.json` (respects `XDG_CONFIG_HOME`)
+- `~/.config/com/rhinco-tv/rhinco-tv/config.json` (respects `XDG_CONFIG_HOME`)
 
 Supported settings:
 
