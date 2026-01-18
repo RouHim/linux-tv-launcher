@@ -1,3 +1,22 @@
+# [2.0.0](https://github.com/RouHim/linux-tv-launcher/compare/v1.2.0...v2.0.0) (2026-01-18)
+
+
+### Bug Fixes
+
+* **ui:** handle missing app launches gracefully ([f004ef5](https://github.com/RouHim/linux-tv-launcher/commit/f004ef5093234e3f7a65b5f37a644c8b8c1b4d2a))
+
+
+### Features
+
+* add Tux TV icon, update banner branding, and improve README ([11febd6](https://github.com/RouHim/linux-tv-launcher/commit/11febd63850df2e61fcf43f698622eb47b28bae2))
+* rename application from Linux TV Launcher to RhincoTV ([24f6a28](https://github.com/RouHim/linux-tv-launcher/commit/24f6a281c0310d3da60e6b819235e7bf35c43083))
+* replace Tux with whale shark in icon and banner ([1af11e7](https://github.com/RouHim/linux-tv-launcher/commit/1af11e7363de70f72082c71eaa0633546801cc1b)), closes [#0d1a2a](https://github.com/RouHim/linux-tv-launcher/issues/0d1a2a) [#1a2a3a](https://github.com/RouHim/linux-tv-launcher/issues/1a2a3a) [#5577aa](https://github.com/RouHim/linux-tv-launcher/issues/5577aa)
+
+
+### BREAKING CHANGES
+
+* Config directory changed from ~/.config/com/linux-tv-launcher to ~/.config/com/rhinco-tv
+
 # [1.2.0](https://github.com/RouHim/linux-tv-launcher/compare/v1.1.0...v1.2.0) (2026-01-18)
 
 
