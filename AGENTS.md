@@ -29,7 +29,12 @@ This is a Rust application built with Iced for the UI. Key paths:
 - Run all tests with `cargo test` before submitting changes.
 
 ## Commit & Pull Request Guidelines
-- This repository has no commit history yet; use short, imperative commit messages (e.g., “Add launcher persistence”).
+- Use conventional commit format for semantic release compatibility: `<type>(<scope>): <description>`
+  - `feat:` new feature (MINOR version bump)
+  - `fix:` bug fix (PATCH version bump)
+  - `docs:`, `test:`, `chore:`, `refactor:`, `perf:`, `build:`, `style:` for other changes
+  - `BREAKING CHANGE:` footer for major version bumps
+- Example: `feat(ui): add dark mode toggle` or `fix(storage): prevent data corruption on exit`
 - PRs should include: a brief summary, testing notes (commands + results), and screenshots or recordings for UI changes.
 
 ## Configuration & Runtime Notes

@@ -1,21 +1,22 @@
 # Linux TV Launcher
 
-A modern, user-friendly game launcher for Linux designed specifically for TV interfaces. Built with Rust and Iced GUI framework, featuring gamepad navigation and automatic artwork fetching.
+A fullscreen, couch-friendly launcher for Linux built with Rust and Iced. It prioritizes gamepad navigation, scans popular game libraries, and provides system tools tailored for living-room setups.
 
 ## Features
 
-- **Gamepad-Friendly Navigation**: Full controller support for couch gaming
-- **Automatic Artwork**: Fetches game covers from multiple sources (SteamGridDB, Heroic, SearXNG)
-- **Desktop Integration**: Launches games from .desktop files and Heroic Game Launcher
-- **System Monitoring**: Built-in system update checker
-- **Responsive UI**: Optimized for 1080p+ TV displays
-- **Fast Startup**: Minimal dependencies, quick loading times
+- **Game discovery** from Steam libraries and Heroic (Epic, GOG, Amazon, sideloaded).
+- **App picker** for XDG `.desktop` apps (including Flatpak and Snap exports).
+- **Cover art pipeline** with Heroic art, SteamGridDB (optional API key), and SearXNG fallback.
+- **Gamepad-first navigation** with keyboard shortcuts, haptics, and battery indicators.
+- **System category** for updates, system info, suspend/shutdown, and exiting the launcher.
+- **On-screen keyboard integration** for GNOME, KDE, wvkbd, and Squeekboard.
+- **Self-updater** that checks GitHub releases on startup.
 
 ## Installation
 
 ### From Source
 
-1. Ensure you have Rust installed (rustup recommended)
+1. Install the Rust toolchain.
 2. Clone the repository:
    ```bash
    git clone https://github.com/RouHim/linux-tv-launcher.git
@@ -27,63 +28,87 @@ A modern, user-friendly game launcher for Linux designed specifically for TV int
    ./target/release/linux-tv-launcher
    ```
 
-### Dependencies
+## Runtime Notes
 
-- GTK libraries (for Iced)
-- Game controllers (optional, for gamepad support)
+- **Steam games** require the `steam` client in your `PATH`.
+- **Heroic games** launch via the `heroic://` protocol.
+- **System updates** currently support Arch-based tools: `pacman`, `yay`, or `paru` (with `pkexec`).
+- **System info** uses common utilities such as `lspci`, `glxinfo`, `vulkaninfo`, and `gamemoded` when available.
+- **On-screen keyboard** support is detected automatically (GNOME, KDE, wvkbd, Squeekboard).
 
 ## Usage
 
-Launch the application and use your gamepad or keyboard to navigate:
+### Categories
 
-- **D-pad/Left Stick**: Navigate menu
-- **A Button/Enter**: Select/Launch game
-- **B Button/Escape**: Go back
-- **Y Button**: System menu
+- **Games**: automatically scanned from Steam and Heroic.
+- **Apps**: curated list of desktop apps you add via the picker.
+- **System**: update, system info, suspend, shutdown, exit.
 
-### Game Sources
+### Controls
 
-The launcher automatically detects games from:
-- Desktop entries (.desktop files)
-- Heroic Game Launcher library
-- Steam (via desktop shortcuts)
+**Gamepad**
+- **A / South**: Select
+- **B / East**: Back
+- **X / West**: Context menu
+- **Y / North**: Add app (Apps category)
+- **D-pad / Left Stick**: Navigate
+- **LB / LT**: Previous category
+- **RB / RT**: Next category
+- **Select / −**: Show controls
+
+**Keyboard**
+- **Arrow Keys**: Navigate
+- **Enter**: Select
+- **Escape**: Back
+- **Tab**: Next category
+- **C**: Context menu
+- **+ / A**: Add app (Apps category)
+- **−**: Show controls
+- **F4**: Quit launcher
 
 ## Configuration
 
-Games are automatically discovered. For custom setups:
+Configuration is stored at:
 
-- Place .desktop files in `~/.local/share/applications/`
-- Configure Heroic Launcher with your game library
-- Steam games appear automatically via desktop shortcuts
+- `~/.config/com/linux-tv-launcher/linux-tv-launcher/config.json` (respects `XDG_CONFIG_HOME`)
+
+Supported settings:
+
+- `steamgriddb_api_key`: API key for SteamGridDB. You can also set `STEAMGRIDDB_API_KEY` as an environment variable.
+- `apps`: saved app entries from the picker.
+- `game_launch_history`: launch timestamps used for sorting.
 
 ## Development
 
-### Setup
+### Commands
 
-1. Clone and build as above
-2. Run in development mode:
-   ```bash
-   cargo run
-   ```
+- `cargo run` — run in development
+- `cargo test` — run tests
+- `cargo fmt` — format code
+- `cargo clippy` — lint
 
 ### Project Structure
 
-- `src/main.rs`: Application entry point
-- `src/app.rs`: Main application logic
-- `src/ui/`: User interface components
-- `src/model.rs`: Data models
-- `src/storage.rs`: Persistent storage
-- `assets/`: Embedded assets (fonts, icons)
+- `src/main.rs`: application entry point
+- `src/ui.rs`: main UI update/view loop
+- `src/game_sources.rs`: Steam + Heroic discovery
+- `src/desktop_apps.rs`: XDG `.desktop` scanning for app picker
+- `src/game_image_fetcher.rs`: cover art pipeline
+- `src/system_update.rs`: system update workflow (Arch-based)
+- `src/system_info.rs`: system diagnostics collection
+- `src/storage.rs`: config persistence
+- `src/assets.rs`: embedded assets
 
 ### Architecture
-- [Process Monitoring & Focus Management](docs/process_monitoring.md) - Details on game exit detection strategy.
 
-### Contributing
+- [Process Monitoring & Focus Management](docs/process_monitoring.md)
+
+## Contributing
 
 Contributions welcome! Please:
-- Follow Rust formatting (`cargo fmt`)
-- Run tests (`cargo test`)
-- Ensure clippy passes (`cargo clippy`)
+
+- Run `cargo fmt`, `cargo clippy`, and `cargo test`
+- Keep changes focused and aligned with existing architecture
 
 ## Support
 
