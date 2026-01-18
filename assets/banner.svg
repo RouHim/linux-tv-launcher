@@ -1,19 +1,19 @@
 <svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Background gradient -->
+    <!-- Background gradient (deep ocean) -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1a2a;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#2a2a3a;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#0d1a2a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a2a3a;stop-opacity:1" />
     </linearGradient>
-    <!-- Screen gradient -->
+    <!-- Screen gradient (ocean-like) -->
     <linearGradient id="screenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1e1e2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#2a2a3a;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#1a2a3a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0d1a2a;stop-opacity:1" />
     </linearGradient>
-    <!-- Tux body gradient -->
-    <linearGradient id="tuxGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#555565;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#404050;stop-opacity:1" />
+    <!-- Whale shark body gradient -->
+    <linearGradient id="whaleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#5577aa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#334466;stop-opacity:1" />
     </linearGradient>
     <!-- Glow filter -->
     <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
@@ -38,36 +38,62 @@
     <line x1="960" y1="0" x2="960" y2="640" stroke="#ffffff" stroke-width="1"/>
   </g>
   
-  <!-- Logo: TV with Tux (scaled up version of icon) -->
+  <!-- Logo: TV with Whale Shark (scaled up version of icon) -->
   <g transform="translate(120, 160)">
     <!-- TV Frame -->
     <rect x="0" y="0" width="216" height="152" rx="20" ry="20" fill="#383848"/>
     
-    <!-- Screen -->
+    <!-- Screen (ocean-like dark blue) -->
     <rect x="12" y="12" width="192" height="128" rx="12" ry="12" fill="url(#screenGrad)"/>
     
-    <!-- Tux Silhouette on Screen -->
-    <!-- Body -->
-    <ellipse cx="108" cy="84" rx="36" ry="40" fill="url(#tuxGrad)"/>
+    <!-- Whale Shark on Screen -->
+    <!-- Main Body -->
+    <ellipse cx="108" cy="76" rx="76" ry="36" fill="url(#whaleGrad)"/>
     
-    <!-- Belly -->
-    <ellipse cx="108" cy="90" rx="24" ry="28" fill="#e8e8f0"/>
+    <!-- Head (wider front) -->
+    <ellipse cx="40" cy="76" rx="28" ry="32" fill="url(#whaleGrad)"/>
     
-    <!-- Head -->
-    <ellipse cx="108" cy="36" rx="28" ry="24" fill="url(#tuxGrad)"/>
+    <!-- Flat head shape -->
+    <rect x="20" y="52" width="40" height="48" rx="8" fill="url(#whaleGrad)"/>
     
-    <!-- Eyes -->
-    <ellipse cx="96" cy="32" rx="8" ry="10" fill="#ffffff"/>
-    <ellipse cx="120" cy="32" rx="8" ry="10" fill="#ffffff"/>
-    <circle cx="98" cy="34" r="4" fill="#1a1a2a"/>
-    <circle cx="122" cy="34" r="4" fill="#1a1a2a"/>
+    <!-- Tail fin -->
+    <path d="M180,76 L200,52 L196,76 L200,100 Z" fill="url(#whaleGrad)"/>
     
-    <!-- Beak -->
-    <ellipse cx="108" cy="48" rx="12" ry="6" fill="#ffaa44"/>
+    <!-- Dorsal fin -->
+    <path d="M100,40 L112,20 L124,40 Z" fill="url(#whaleGrad)"/>
     
-    <!-- Feet -->
-    <ellipse cx="88" cy="120" rx="12" ry="6" fill="#ffaa44"/>
-    <ellipse cx="128" cy="120" rx="12" ry="6" fill="#ffaa44"/>
+    <!-- Pectoral fin -->
+    <ellipse cx="74" cy="104" rx="20" ry="8" fill="#445577" transform="rotate(-20 74 104)"/>
+    
+    <!-- Whale shark spots (white dots pattern) -->
+    <circle cx="64" cy="64" r="4" fill="#aaccee" opacity="0.7"/>
+    <circle cx="84" cy="56" r="3" fill="#aaccee" opacity="0.7"/>
+    <circle cx="104" cy="60" r="4" fill="#aaccee" opacity="0.7"/>
+    <circle cx="128" cy="56" r="3" fill="#aaccee" opacity="0.7"/>
+    <circle cx="148" cy="64" r="3" fill="#aaccee" opacity="0.7"/>
+    <circle cx="76" cy="76" r="3" fill="#aaccee" opacity="0.6"/>
+    <circle cx="96" cy="72" r="4" fill="#aaccee" opacity="0.6"/>
+    <circle cx="120" cy="72" r="3" fill="#aaccee" opacity="0.6"/>
+    <circle cx="140" cy="76" r="4" fill="#aaccee" opacity="0.6"/>
+    <circle cx="160" cy="72" r="3" fill="#aaccee" opacity="0.6"/>
+    <circle cx="88" cy="88" r="3" fill="#aaccee" opacity="0.5"/>
+    <circle cx="112" cy="92" r="3" fill="#aaccee" opacity="0.5"/>
+    <circle cx="136" cy="88" r="3" fill="#aaccee" opacity="0.5"/>
+    
+    <!-- Belly (lighter underside) -->
+    <ellipse cx="108" cy="100" rx="60" ry="12" fill="#8899bb" opacity="0.6"/>
+    
+    <!-- Gill slits -->
+    <line x1="56" y1="64" x2="60" y2="80" stroke="#334455" stroke-width="3" stroke-linecap="round"/>
+    <line x1="64" y1="62" x2="68" y2="82" stroke="#334455" stroke-width="3" stroke-linecap="round"/>
+    <line x1="72" y1="60" x2="76" y2="84" stroke="#334455" stroke-width="3" stroke-linecap="round"/>
+    
+    <!-- Eye -->
+    <circle cx="32" cy="72" r="6" fill="#1a2a3a"/>
+    <circle cx="30" cy="70" r="2" fill="#ffffff" opacity="0.6"/>
+    
+    <!-- Mouth line -->
+    <path d="M20,84 Q32,92 52,88" stroke="#334455" stroke-width="3" fill="none" stroke-linecap="round"/>
     
     <!-- TV Stand -->
     <rect x="72" y="152" width="72" height="10" rx="4" ry="4" fill="#383848"/>
@@ -81,10 +107,10 @@
   <text x="400" y="280" font-family="Arial, sans-serif" font-size="80" font-weight="bold" fill="#ffffff">Linux TV Launcher</text>
   
   <!-- Tagline -->
-  <text x="400" y="360" font-family="Arial, sans-serif" font-size="36" fill="#aaaacc">Modern Game Launcher for Linux TVs</text>
+  <text x="400" y="360" font-family="Arial, sans-serif" font-size="36" fill="#8899bb">Modern Game Launcher for Linux TVs</text>
   
   <!-- Feature highlights -->
-  <g transform="translate(400, 420)" font-family="Arial, sans-serif" font-size="24" fill="#888899">
+  <g transform="translate(400, 420)" font-family="Arial, sans-serif" font-size="24" fill="#7788aa">
     <circle cx="0" cy="-8" r="6" fill="#44dd66"/>
     <text x="20" y="0">Controller Support</text>
     

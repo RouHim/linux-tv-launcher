@@ -1,43 +1,69 @@
 <svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="screenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1e1e2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#2a2a3a;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#1a2a3a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0d1a2a;stop-opacity:1" />
     </linearGradient>
-    <linearGradient id="tuxGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#555565;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#404050;stop-opacity:1" />
+    <linearGradient id="whaleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#5577aa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#334466;stop-opacity:1" />
     </linearGradient>
   </defs>
   
   <!-- TV Frame -->
   <rect x="10" y="16" width="108" height="76" rx="10" ry="10" fill="#383848"/>
   
-  <!-- Screen -->
+  <!-- Screen (ocean-like dark blue) -->
   <rect x="16" y="22" width="96" height="64" rx="6" ry="6" fill="url(#screenGrad)"/>
   
-  <!-- Tux Silhouette on Screen -->
-  <!-- Body -->
-  <ellipse cx="64" cy="62" rx="18" ry="20" fill="url(#tuxGrad)"/>
+  <!-- Whale Shark on Screen -->
+  <!-- Main Body -->
+  <ellipse cx="64" cy="54" rx="38" ry="18" fill="url(#whaleGrad)"/>
   
-  <!-- Belly -->
-  <ellipse cx="64" cy="65" rx="12" ry="14" fill="#e8e8f0"/>
+  <!-- Head (wider front) -->
+  <ellipse cx="30" cy="54" rx="14" ry="16" fill="url(#whaleGrad)"/>
   
-  <!-- Head -->
-  <ellipse cx="64" cy="38" rx="14" ry="12" fill="url(#tuxGrad)"/>
+  <!-- Flat head shape -->
+  <rect x="20" y="42" width="20" height="24" rx="4" fill="url(#whaleGrad)"/>
   
-  <!-- Eyes -->
-  <ellipse cx="58" cy="36" rx="4" ry="5" fill="#ffffff"/>
-  <ellipse cx="70" cy="36" rx="4" ry="5" fill="#ffffff"/>
-  <circle cx="59" cy="37" r="2" fill="#1a1a2a"/>
-  <circle cx="71" cy="37" r="2" fill="#1a1a2a"/>
+  <!-- Tail fin -->
+  <path d="M98,54 L108,42 L106,54 L108,66 Z" fill="url(#whaleGrad)"/>
   
-  <!-- Beak -->
-  <ellipse cx="64" cy="44" rx="6" ry="3" fill="#ffaa44"/>
+  <!-- Dorsal fin -->
+  <path d="M58,36 L64,26 L70,36 Z" fill="url(#whaleGrad)"/>
   
-  <!-- Feet -->
-  <ellipse cx="54" cy="80" rx="6" ry="3" fill="#ffaa44"/>
-  <ellipse cx="74" cy="80" rx="6" ry="3" fill="#ffaa44"/>
+  <!-- Pectoral fin -->
+  <ellipse cx="45" cy="68" rx="10" ry="4" fill="#445577" transform="rotate(-20 45 68)"/>
+  
+  <!-- Whale shark spots (white dots pattern) -->
+  <circle cx="40" cy="48" r="2" fill="#aaccee" opacity="0.7"/>
+  <circle cx="50" cy="44" r="1.5" fill="#aaccee" opacity="0.7"/>
+  <circle cx="60" cy="46" r="2" fill="#aaccee" opacity="0.7"/>
+  <circle cx="72" cy="44" r="1.5" fill="#aaccee" opacity="0.7"/>
+  <circle cx="82" cy="48" r="1.5" fill="#aaccee" opacity="0.7"/>
+  <circle cx="46" cy="54" r="1.5" fill="#aaccee" opacity="0.6"/>
+  <circle cx="56" cy="52" r="2" fill="#aaccee" opacity="0.6"/>
+  <circle cx="68" cy="52" r="1.5" fill="#aaccee" opacity="0.6"/>
+  <circle cx="78" cy="54" r="2" fill="#aaccee" opacity="0.6"/>
+  <circle cx="88" cy="52" r="1.5" fill="#aaccee" opacity="0.6"/>
+  <circle cx="52" cy="60" r="1.5" fill="#aaccee" opacity="0.5"/>
+  <circle cx="64" cy="62" r="1.5" fill="#aaccee" opacity="0.5"/>
+  <circle cx="76" cy="60" r="1.5" fill="#aaccee" opacity="0.5"/>
+  
+  <!-- Belly (lighter underside) -->
+  <ellipse cx="64" cy="66" rx="30" ry="6" fill="#8899bb" opacity="0.6"/>
+  
+  <!-- Gill slits -->
+  <line x1="36" y1="48" x2="38" y2="56" stroke="#334455" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="40" y1="47" x2="42" y2="57" stroke="#334455" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="44" y1="46" x2="46" y2="58" stroke="#334455" stroke-width="1.5" stroke-linecap="round"/>
+  
+  <!-- Eye -->
+  <circle cx="24" cy="52" r="3" fill="#1a2a3a"/>
+  <circle cx="23" cy="51" r="1" fill="#ffffff" opacity="0.6"/>
+  
+  <!-- Mouth line -->
+  <path d="M18,58 Q24,62 34,60" stroke="#334455" stroke-width="1.5" fill="none" stroke-linecap="round"/>
   
   <!-- TV Stand -->
   <rect x="46" y="92" width="36" height="5" rx="2" ry="2" fill="#383848"/>
