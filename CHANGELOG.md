@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/RouHim/linux-tv-launcher/compare/v1.1.0...v1.2.0) (2026-01-18)
+
+
+### Features
+
+* **games:** replace simple64 scan with gopher64 ([7585f92](https://github.com/RouHim/linux-tv-launcher/commit/7585f92ff42105535951ecc38d4b2925519c5e0b))
+
 # [1.1.0](https://github.com/RouHim/linux-tv-launcher/compare/v1.0.1...v1.1.0) (2026-01-18)
 
 
