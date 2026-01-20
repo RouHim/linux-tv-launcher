@@ -36,7 +36,7 @@ use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{load_config, save_config, AppConfig};
 use crate::sys_utils::restart_process;
 use crate::system_info::{fetch_system_info, GamingSystemInfo};
-use crate::system_update::system_update_stream;
+use crate::system_update::{is_update_supported, system_update_stream};
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
 use crate::ui_components::{render_clock, render_gamepad_infos};
@@ -93,16 +93,19 @@ impl Launcher {
         let image_cache = ImageCache::new().ok();
         let current_exe = env::current_exe().ok();
 
+        let mut system_items_vec = vec![LauncherItem::shutdown(), LauncherItem::suspend()];
+
+        if is_update_supported() {
+            system_items_vec.push(LauncherItem::system_update());
+        }
+
+        system_items_vec.push(LauncherItem::system_info());
+        system_items_vec.push(LauncherItem::exit());
+
         let launcher = Self {
             apps: CategoryList::new(Vec::new()),
             games: CategoryList::new(Vec::new()),
-            system_items: CategoryList::new(vec![
-                LauncherItem::shutdown(),
-                LauncherItem::suspend(),
-                LauncherItem::system_update(),
-                LauncherItem::system_info(),
-                LauncherItem::exit(),
-            ]),
+            system_items: CategoryList::new(system_items_vec),
             category: Category::Games,
             default_icon_handle: default_icon,
             status_message: None,

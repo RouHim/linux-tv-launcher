@@ -407,6 +407,16 @@ fn detect_aur_helper() -> Option<&'static str> {
         .find(|helper| command_exists(helper))
 }
 
+/// Returns true if system updates are supported on this system.
+/// Checks for supported package managers and required helpers.
+pub fn is_update_supported() -> bool {
+    if get_update_command().is_none() {
+        return false;
+    }
+
+    command_exists("pkexec")
+}
+
 fn command_exists(command: &str) -> bool {
     if let Some(path_var) = env::var_os("PATH") {
         for path in env::split_paths(&path_var) {

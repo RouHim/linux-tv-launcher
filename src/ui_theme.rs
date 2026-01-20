@@ -13,8 +13,6 @@ pub const ICON_ITEM_HEIGHT: f32 = 280.0;
 // --- Design System Primitives (from docs/color-schema.md) ---
 pub const COLOR_ABYSS_DARK: Color = Color::from_rgb(0.04, 0.06, 0.09); // #0B1016
 pub const COLOR_DEEP_SLATE: Color = Color::from_rgb(0.09, 0.13, 0.19); // #162231
-pub const COLOR_RHINCO_BLUE: Color = Color::from_rgb(0.12, 0.37, 0.58); // #1E5F94
-pub const COLOR_OCEAN_DEPTH: Color = Color::from_rgb(0.06, 0.21, 0.33); // #0F3555
 pub const COLOR_CYAN_GLOW: Color = Color::from_rgb(0.30, 0.79, 0.94); // #4CC9F0
 pub const COLOR_SOFT_WHITE: Color = Color::from_rgb(0.94, 0.96, 0.97); // #F0F4F8
 pub const COLOR_MUTED_STEEL: Color = Color::from_rgb(0.58, 0.64, 0.72); // #94A3B8
@@ -36,8 +34,6 @@ pub const COLOR_TEXT_DIM: Color = Color::from_rgb(0.40, 0.44, 0.50); // Darker s
 
 // Accents & Interactions
 pub const COLOR_ACCENT: Color = COLOR_CYAN_GLOW;
-pub const COLOR_BRAND_PRIMARY: Color = COLOR_RHINCO_BLUE;
-pub const COLOR_BRAND_SECONDARY: Color = COLOR_OCEAN_DEPTH;
 
 // Overlays (derived from primitives)
 pub const COLOR_ACCENT_OVERLAY: Color = Color::from_rgba(0.30, 0.79, 0.94, 0.3); // Cyan Glow @ 30%
