@@ -1,3 +1,10 @@
+## [2.0.3](https://github.com/RouHim/rhinco-tv/compare/v2.0.2...v2.0.3) (2026-01-20)
+
+
+### Bug Fixes
+
+* **ui:** adjust main view padding to prevent content from being obscured by status bar and controls hint ([c47f28d](https://github.com/RouHim/rhinco-tv/commit/c47f28d23668a9be45a9a42e39519d5238d9ffc0))
+
 ## [2.0.2](https://github.com/RouHim/rhinco-tv/compare/v2.0.1...v2.0.2) (2026-01-20)
 
 ## [2.0.1](https://github.com/RouHim/rhinco-tv/compare/v2.0.0...v2.0.1) (2026-01-20)
