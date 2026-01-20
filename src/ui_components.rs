@@ -8,7 +8,7 @@ use crate::gamepad::GamepadInfo;
 use crate::icons;
 use crate::ui_theme::{
     COLOR_BATTERY_CHARGING, COLOR_BATTERY_GOOD, COLOR_BATTERY_LOW, COLOR_BATTERY_MODERATE,
-    COLOR_TEXT_BRIGHT, SANSATION,
+    COLOR_DEEP_SLATE, COLOR_TEXT_BRIGHT, SANSATION,
 };
 
 fn is_svg(path: &Path) -> bool {
@@ -91,8 +91,8 @@ where
             iced::widget::tooltip::Position::Bottom,
         )
         .style(|_theme| iced::widget::container::Style {
-            background: Some(iced::Color::from_rgb8(0, 0, 0).into()),
-            text_color: Some(iced::Color::WHITE),
+            background: Some(COLOR_DEEP_SLATE.into()),
+            text_color: Some(COLOR_TEXT_BRIGHT),
             ..Default::default()
         });
 

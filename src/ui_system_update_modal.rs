@@ -59,26 +59,22 @@ pub fn render_system_update_modal<'a>(state: &SystemUpdateState) -> Element<'a, 
                 (
                     "✓".to_string(),
                     "Update complete. Restart required.".to_string(),
-                    Color::from_rgb(0.2, 0.8, 0.2),
+                    COLOR_SUCCESS,
                 )
             } else {
                 (
                     "✓".to_string(),
                     "Update complete!".to_string(),
-                    Color::from_rgb(0.2, 0.8, 0.2),
+                    COLOR_SUCCESS,
                 )
             }
         }
         UpdateStatus::NoUpdates => (
             "✓".to_string(),
             "System is up to date".to_string(),
-            Color::from_rgb(0.2, 0.8, 0.2),
+            COLOR_SUCCESS,
         ),
-        UpdateStatus::Failed(_) => (
-            "✗".to_string(),
-            "Update failed".to_string(),
-            Color::from_rgb(0.8, 0.2, 0.2),
-        ),
+        UpdateStatus::Failed(_) => ("✗".to_string(), "Update failed".to_string(), COLOR_ERROR),
     };
 
     let title = Text::new("System Update")

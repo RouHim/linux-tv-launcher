@@ -5,9 +5,6 @@ use crate::messages::Message;
 use crate::system_info::GamingSystemInfo;
 use crate::ui_theme::*;
 
-const COLOR_OK: Color = Color::from_rgb(0.4, 0.8, 0.4);
-const COLOR_WARN: Color = Color::from_rgb(0.9, 0.7, 0.3);
-
 pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Element<'a, Message> {
     let title = Text::new("System Information")
         .font(SANSATION)
@@ -362,7 +359,7 @@ fn info_row_colored(label: &str, value: String, color: Color) -> Element<'_, Mes
 
 fn info_row_with_status(label: String, value: String, ok: bool) -> Element<'static, Message> {
     let indicator = status_indicator(ok);
-    let color = if ok { COLOR_OK } else { COLOR_WARN };
+    let color = if ok { COLOR_SUCCESS } else { COLOR_WARNING };
 
     Row::new()
         .push(indicator)
@@ -382,9 +379,9 @@ fn info_row_with_status(label: String, value: String, ok: bool) -> Element<'stat
 
 fn status_indicator(ok: bool) -> Element<'static, Message> {
     let (symbol, color) = if ok {
-        ("●", COLOR_OK)
+        ("●", COLOR_SUCCESS)
     } else {
-        ("○", COLOR_WARN)
+        ("○", COLOR_WARNING)
     };
 
     Text::new(symbol)
@@ -396,14 +393,14 @@ fn status_indicator(ok: bool) -> Element<'static, Message> {
 
 fn info_row_with_bar(label: String, value: String, percent: f32) -> Element<'static, Message> {
     let bar_color = if percent > 90.0 {
-        COLOR_WARN
+        COLOR_WARNING
     } else {
         COLOR_ACCENT
     };
 
     let bar = ProgressBar::new(0.0..=100.0, percent).style(move |_theme| {
         iced::widget::progress_bar::Style {
-            background: Color::from_rgb(0.2, 0.2, 0.2).into(),
+            background: COLOR_ABYSS_DARK.into(),
             bar: bar_color.into(),
             border: iced::Border {
                 color: Color::TRANSPARENT,
