@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/RouHim/rhinco-tv/compare/v2.0.0...v2.0.1) (2026-01-20)
+
+
+### Bug Fixes
+
+* **ui:** hide system update when unsupported ([6c93b19](https://github.com/RouHim/rhinco-tv/commit/6c93b195d030304d099abe9d8cec2b7c3d857b9f))
+
 # [2.0.0](https://github.com/RouHim/rhinco-tv/compare/v1.2.0...v2.0.0) (2026-01-18)
 
 
