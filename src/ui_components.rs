@@ -102,7 +102,7 @@ where
     row.into()
 }
 
-fn get_battery_visuals<'a, Message>(power: PowerInfo) -> Option<(Element<'a, Message>, Color)>
+pub fn get_battery_visuals<'a, Message>(power: PowerInfo) -> Option<(Element<'a, Message>, Color)>
 where
     Message: 'a,
 {

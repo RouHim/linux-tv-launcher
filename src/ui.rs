@@ -35,12 +35,13 @@ use crate::searxng::SearxngClient;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{load_config, save_config, AppConfig};
 use crate::sys_utils::restart_process;
+use crate::system_battery::read_system_battery;
 use crate::system_info::{fetch_system_info, GamingSystemInfo};
 use crate::system_update::{is_update_supported, system_update_stream};
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
 use crate::ui_background::WhaleSharkBackground;
-use crate::ui_components::{render_clock, render_gamepad_infos};
+use crate::ui_components::{get_battery_visuals, render_clock, render_gamepad_infos};
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
 };
@@ -77,6 +78,8 @@ pub struct Launcher {
     /// Stores launch timestamps for games (keyed by game identifier)
     game_launch_history: std::collections::HashMap<String, i64>,
     background: WhaleSharkBackground,
+    system_battery: Option<gilrs::PowerInfo>,
+    last_battery_check: std::time::Instant,
 }
 
 impl Launcher {
@@ -130,13 +133,27 @@ impl Launcher {
             gamepad_infos: Vec::new(),
             game_launch_history: std::collections::HashMap::new(),
             background: WhaleSharkBackground::new(),
+            system_battery: None,
+            last_battery_check: std::time::Instant::now(),
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
-        let tasks = Task::perform(
-            async { load_config().map_err(|err| err.to_string()) },
-            Message::AppsLoaded,
-        );
+        // Also perform initial battery check
+        let tasks = Task::batch(vec![
+            Task::perform(
+                async { load_config().map_err(|err| err.to_string()) },
+                Message::AppsLoaded,
+            ),
+            Task::perform(
+                async {
+                    tokio::task::spawn_blocking(read_system_battery)
+                        .await
+                        .ok()
+                        .flatten()
+                },
+                Message::SystemBatteryUpdated,
+            ),
+        ]);
 
         (launcher, tasks)
     }
@@ -178,7 +195,22 @@ impl Launcher {
             }
             Message::Tick(t) => {
                 self.current_time = t;
-                Task::none()
+                let mut tasks = Vec::new();
+
+                // Check battery once a minute
+                if self.last_battery_check.elapsed().as_secs() >= 60 {
+                    self.last_battery_check = std::time::Instant::now();
+                    tasks.push(Task::perform(
+                        async {
+                            tokio::task::spawn_blocking(read_system_battery)
+                                .await
+                                .ok()
+                                .flatten()
+                        },
+                        Message::SystemBatteryUpdated,
+                    ));
+                }
+                Task::batch(tasks)
             }
             Message::WindowResized(w) => {
                 self.window_width = w;
@@ -224,6 +256,10 @@ impl Launcher {
             Message::GameExited => self.handle_game_exited(),
             Message::GamepadBatteryUpdate(infos) => {
                 self.gamepad_infos = infos;
+                Task::none()
+            }
+            Message::SystemBatteryUpdated(info) => {
+                self.system_battery = info;
                 Task::none()
             }
 
@@ -612,17 +648,27 @@ impl Launcher {
                 ..Default::default()
             });
 
-        let status_bar_row = iced::widget::Row::new()
+        let mut status_bar_row = iced::widget::Row::new()
             .align_y(iced::Alignment::Center)
             .push(render_gamepad_infos(&self.gamepad_infos))
-            .push(iced::widget::Space::new().width(Length::Fill))
-            .push(render_clock(&self.current_time));
+            .push(iced::widget::Space::new().width(Length::Fill));
+
+        if let Some(battery_info) = self.system_battery {
+            if let Some((icon, _color)) = get_battery_visuals(battery_info) {
+                status_bar_row = status_bar_row
+                    .push(icon)
+                    .push(iced::widget::Space::new().width(16)); // Spacing between battery and clock
+            }
+        }
+
+        let status_bar_row = status_bar_row.push(render_clock(&self.current_time));
 
         let status_bar = Container::new(status_bar_row)
-            .padding(10)
+            .padding([10, 20])
             .width(Length::Fill);
 
         let background = self.background.view();
+
         let mut base_stack = Stack::new()
             .push(background)
             .push(main_content)

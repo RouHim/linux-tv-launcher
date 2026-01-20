@@ -193,8 +193,8 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
 
     // Modal box
     let modal_box = Container::new(modal_column)
-        .width(Length::Fixed(500.0))
-        .height(Length::FillPortion(70))
+        .width(Length::Fill)
+        .height(Length::Fill)
         .padding(20)
         .style(|_| iced::widget::container::Style {
             background: Some(COLOR_PANEL.into()),
@@ -212,6 +212,7 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
         .height(Length::Fill)
         .center_x(Length::Fill)
         .center_y(Length::Fill)
+        .padding(200)
         .style(|_| iced::widget::container::Style {
             background: Some(COLOR_OVERLAY_STRONG.into()),
             ..Default::default()

@@ -42,6 +42,7 @@ pub enum Message {
     AppUpdateResult(Result<bool, String>),
     RestartApp,
     GamepadBatteryUpdate(Vec<GamepadInfo>),
+    SystemBatteryUpdated(Option<gilrs::PowerInfo>),
     Tick(DateTime<Local>),
     None,
 }

@@ -17,6 +17,7 @@ mod searxng;
 mod steamgriddb;
 mod storage;
 mod sys_utils;
+mod system_battery;
 mod system_info;
 mod system_update;
 mod system_update_state;
