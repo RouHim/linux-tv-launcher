@@ -588,7 +588,10 @@ impl Launcher {
     pub fn view(&self) -> Element<'_, Message> {
         let content = self.render_category();
 
-        let mut column = Column::new().push(content).spacing(20);
+        let mut column = Column::new()
+            .push(iced::widget::Space::new().height(80))
+            .push(content)
+            .spacing(20);
         if let Some(status) = render_status(&self.status_message) {
             column = column.push(status);
         }
@@ -616,7 +619,7 @@ impl Launcher {
             .push(render_clock(&self.current_time));
 
         let status_bar = Container::new(status_bar_row)
-            .padding(30)
+            .padding(50)
             .width(Length::Fill);
 
         let stack = Stack::new().push(main_content).push(status_bar).into();
