@@ -39,6 +39,7 @@ use crate::system_info::{fetch_system_info, GamingSystemInfo};
 use crate::system_update::{is_update_supported, system_update_stream};
 use crate::system_update_state::{SystemUpdateProgress, SystemUpdateState, UpdateStatus};
 use crate::ui_app_picker::{render_app_picker, AppPickerState};
+use crate::ui_background::WhaleSharkBackground;
 use crate::ui_components::{render_clock, render_gamepad_infos};
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
@@ -75,6 +76,7 @@ pub struct Launcher {
     gamepad_infos: Vec<GamepadInfo>,
     /// Stores launch timestamps for games (keyed by game identifier)
     game_launch_history: std::collections::HashMap<String, i64>,
+    background: WhaleSharkBackground,
 }
 
 impl Launcher {
@@ -127,6 +129,7 @@ impl Launcher {
             current_time: Local::now(),
             gamepad_infos: Vec::new(),
             game_launch_history: std::collections::HashMap::new(),
+            background: WhaleSharkBackground::new(),
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
@@ -604,7 +607,7 @@ impl Launcher {
                 ..Default::default()
             })
             .style(|_theme| iced::widget::container::Style {
-                background: Some(COLOR_BACKGROUND.into()),
+                background: Some(Color::TRANSPARENT.into()),
                 text_color: Some(Color::WHITE),
                 ..Default::default()
             });
@@ -619,7 +622,11 @@ impl Launcher {
             .padding(10)
             .width(Length::Fill);
 
-        let mut base_stack = Stack::new().push(main_content).push(status_bar);
+        let background = self.background.view();
+        let mut base_stack = Stack::new()
+            .push(background)
+            .push(main_content)
+            .push(status_bar);
 
         // Add controls hint when no modal is open
         if matches!(&self.modal, ModalState::None) {
