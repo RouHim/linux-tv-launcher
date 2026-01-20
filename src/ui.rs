@@ -588,17 +588,9 @@ impl Launcher {
     pub fn view(&self) -> Element<'_, Message> {
         let content = self.render_category();
 
-        let mut column = Column::new()
-            .push(iced::widget::Space::new().height(80))
-            .push(content)
-            .spacing(20);
+        let mut column = Column::new().push(content);
         if let Some(status) = render_status(&self.status_message) {
             column = column.push(status);
-        }
-
-        // Add controls hint when no modal is open
-        if matches!(&self.modal, ModalState::None) {
-            column = column.push(render_controls_hint());
         }
 
         let main_content = Container::new(column)
@@ -606,6 +598,11 @@ impl Launcher {
             .height(Length::Fill)
             .center_x(Length::Fill)
             .center_y(Length::Fill)
+            .padding(iced::Padding {
+                top: 80.0,
+                bottom: 80.0,
+                ..Default::default()
+            })
             .style(|_theme| iced::widget::container::Style {
                 background: Some(COLOR_BACKGROUND.into()),
                 text_color: Some(Color::WHITE),
@@ -619,12 +616,22 @@ impl Launcher {
             .push(render_clock(&self.current_time));
 
         let status_bar = Container::new(status_bar_row)
-            .padding(50)
+            .padding(10)
             .width(Length::Fill);
 
-        let stack = Stack::new().push(main_content).push(status_bar).into();
+        let mut base_stack = Stack::new().push(main_content).push(status_bar);
 
-        self.render_with_modal(stack)
+        // Add controls hint when no modal is open
+        if matches!(&self.modal, ModalState::None) {
+            let hint_layer = Column::new()
+                .push(iced::widget::Space::new().height(Length::Fill))
+                .push(render_controls_hint());
+            base_stack = base_stack.push(hint_layer);
+        }
+
+        let base_view = base_stack.into();
+
+        self.render_with_modal(base_view)
     }
 
     fn render_with_modal<'a>(&'a self, main_content: Element<'a, Message>) -> Element<'a, Message> {

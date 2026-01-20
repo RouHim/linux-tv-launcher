@@ -87,10 +87,10 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
         .push(hint_container)
         .spacing(10);
 
-    // Modal box - wider (~86% width)
+    // Modal box
     let modal_box = Container::new(modal_column)
-        .width(Length::FillPortion(6))
-        .height(Length::FillPortion(85))
+        .width(Length::Fill)
+        .height(Length::Fill)
         .padding(25)
         .style(|_| iced::widget::container::Style {
             background: Some(COLOR_PANEL.into()),
@@ -102,18 +102,13 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
             ..Default::default()
         });
 
-    let layout = Row::new()
-        .push(Space::new().width(Length::FillPortion(1)))
-        .push(modal_box)
-        .push(Space::new().width(Length::FillPortion(1)))
-        .width(Length::Fill);
-
     // Overlay container
-    Container::new(layout)
+    Container::new(modal_box)
         .width(Length::Fill)
         .height(Length::Fill)
         .center_x(Length::Fill)
         .center_y(Length::Fill)
+        .padding(100)
         .style(|_| iced::widget::container::Style {
             background: Some(COLOR_OVERLAY_STRONG.into()),
             ..Default::default()

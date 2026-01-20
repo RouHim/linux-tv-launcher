@@ -88,9 +88,8 @@ pub fn render_app_picker<'a>(
         .spacing(10);
 
     let picker_box = Container::new(picker_column)
-        .width(Length::FillPortion(80))
-        .height(Length::FillPortion(80))
-        .padding(20)
+        .width(Length::Fill)
+        .height(Length::Fill)
         .style(|_| iced::widget::container::Style {
             background: Some(COLOR_PANEL.into()),
             border: iced::Border {
@@ -106,6 +105,7 @@ pub fn render_app_picker<'a>(
         .height(Length::Fill)
         .center_x(Length::Fill)
         .center_y(Length::Fill)
+        .padding(100)
         .style(|_| iced::widget::container::Style {
             background: Some(COLOR_OVERLAY_STRONG.into()),
             ..Default::default()
