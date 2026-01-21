@@ -121,6 +121,7 @@ fn build_left_column(info: &GamingSystemInfo) -> Element<'_, Message> {
 
     // === SYSTEM SECTION ===
     column = column.push(section_header_accent("System"));
+    column = column.push(info_row("RhincoTV", env!("CARGO_PKG_VERSION").to_string()));
     column = column.push(info_row("OS", info.os_name.clone()));
     column = column.push(info_row("Kernel", info.kernel_version.clone()));
     column = column.push(info_row("Session", info.xdg_session_type.clone()));

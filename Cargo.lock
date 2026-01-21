@@ -3910,6 +3910,7 @@ dependencies = [
  "rayon",
  "rust-embed",
  "self_update",
+ "semver",
  "serde",
  "serde_json",
  "thiserror 2.0.17",

@@ -1,15 +1,17 @@
 use iced::keyboard::{self, key::Named, Key};
 use iced::widget::operation;
 
+use crate::ui_app_update_modal::{handle_app_update_navigation, render_app_update_modal};
 use crate::ui_modals::{render_app_not_found_modal, render_context_menu, render_help_modal};
 use crate::ui_system_update_modal::render_system_update_modal;
 use crate::ui_theme::*;
+use crate::updater::{apply_update, check_update_available, ReleaseInfo};
 use iced::window;
 use iced::{
     widget::{Column, Container, Stack},
     Color, Element, Event, Length, Subscription, Task,
 };
-use tracing::error;
+use tracing::{error, info};
 
 use chrono::{DateTime, Local};
 use rayon::prelude::*;
@@ -45,7 +47,7 @@ use crate::ui_components::{get_battery_visuals, render_clock, render_gamepad_inf
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
 };
-use crate::ui_state::ModalState;
+use crate::ui_state::{AppUpdatePhase, AppUpdateState, ModalState};
 use crate::ui_system_info_modal::render_system_info_modal;
 
 pub struct Launcher {
@@ -80,6 +82,7 @@ pub struct Launcher {
     background: WhaleSharkBackground,
     system_battery: Option<gilrs::PowerInfo>,
     last_battery_check: std::time::Instant,
+    pending_update: Option<ReleaseInfo>,
 }
 
 impl Launcher {
@@ -135,6 +138,7 @@ impl Launcher {
             background: WhaleSharkBackground::new(),
             system_battery: None,
             last_battery_check: std::time::Instant::now(),
+            pending_update: None,
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
@@ -212,6 +216,17 @@ impl Launcher {
                 }
                 Task::batch(tasks)
             }
+            Message::AppUpdateSpinnerTick => {
+                if let ModalState::AppUpdate(state) = &mut self.modal {
+                    state.spinner_tick = state.spinner_tick.wrapping_add(1);
+                }
+                Task::none()
+            }
+            Message::AppUpdateCheckCompleted(res) => self.handle_app_update_check(res),
+            Message::StartAppUpdate => self.start_app_update(),
+            Message::AppUpdateApplied(res) => self.handle_app_update_applied(res),
+            Message::CloseAppUpdateModal => self.close_app_update_modal(),
+            Message::RestartApp => self.restart_app(),
             Message::WindowResized(w) => {
                 self.window_width = w;
                 Task::none()
@@ -230,6 +245,7 @@ impl Launcher {
             Message::AddSelectedApp => self.add_selected_app(),
             Message::CloseAppPicker => {
                 self.modal = ModalState::None;
+                self.try_show_pending_update();
                 Task::none()
             }
             Message::AppPickerScrolled(vp) => self.handle_app_picker_scrolled(vp),
@@ -239,6 +255,7 @@ impl Launcher {
             Message::SystemUpdateProgress(p) => self.handle_system_update_progress(p),
             Message::CloseSystemUpdateModal => {
                 self.modal = ModalState::None;
+                self.try_show_pending_update();
                 Task::none()
             }
             Message::CancelSystemUpdate => self.cancel_system_update(),
@@ -249,6 +266,7 @@ impl Launcher {
             Message::SystemInfoLoaded(info) => self.handle_system_info_loaded(info),
             Message::CloseSystemInfoModal => {
                 self.modal = ModalState::None;
+                self.try_show_pending_update();
                 Task::none()
             }
 
@@ -262,10 +280,6 @@ impl Launcher {
                 self.system_battery = info;
                 Task::none()
             }
-
-            // App Updates (Self-updater)
-            Message::AppUpdateResult(res) => self.handle_app_update_result(res),
-            Message::RestartApp => self.restart_app(),
 
             Message::None => Task::none(),
         }
@@ -398,15 +412,21 @@ impl Launcher {
 
     fn handle_window_opened(&mut self, id: window::Id) -> Task<Message> {
         self.window_id = Some(id);
+
+        if cfg!(debug_assertions) {
+            info!("Debug mode detected: Skipping app update check");
+            return Task::none();
+        }
+
         // Defer update check until window is ready
         Task::perform(
             async {
-                tokio::task::spawn_blocking(crate::updater::check_for_updates)
+                tokio::task::spawn_blocking(check_update_available)
                     .await
                     .map_err(|e| format!("Task join error: {}", e))
                     .and_then(|r| r)
             },
-            Message::AppUpdateResult,
+            Message::AppUpdateCheckCompleted,
         )
     }
 
@@ -467,6 +487,7 @@ impl Launcher {
             // Remove from available apps and close picker
             self.available_apps.remove(selected_index);
             self.modal = ModalState::None;
+            self.try_show_pending_update();
         }
         Task::none()
     }
@@ -552,6 +573,7 @@ impl Launcher {
 
     fn handle_game_exited(&mut self) -> Task<Message> {
         self.game_running = false;
+        self.try_show_pending_update();
         if let Some(old_id) = self.window_id {
             let settings = window::Settings {
                 decorations: false,
@@ -571,27 +593,84 @@ impl Launcher {
         }
     }
 
-    fn handle_app_update_result(&mut self, result: Result<bool, String>) -> Task<Message> {
+    fn handle_app_update_check(
+        &mut self,
+        result: Result<Option<crate::updater::ReleaseInfo>, String>,
+    ) -> Task<Message> {
         match result {
-            Ok(updated) => {
-                if updated {
-                    self.status_message = Some("App updated, restarting...".to_string());
-                    Task::perform(
+            Ok(Some(release)) => {
+                self.pending_update = Some(release);
+                self.try_show_pending_update();
+                Task::none()
+            }
+            Ok(None) => Task::none(),
+            Err(err) => {
+                error!("App update check failed: {}", err);
+                Task::none()
+            }
+        }
+    }
+
+    fn try_show_pending_update(&mut self) {
+        if self.game_running {
+            return;
+        }
+        if matches!(self.modal, ModalState::None) {
+            if let Some(release) = self.pending_update.take() {
+                self.modal = ModalState::AppUpdate(AppUpdateState::new(release));
+            }
+        }
+    }
+
+    fn start_app_update(&mut self) -> Task<Message> {
+        if let ModalState::AppUpdate(state) = &mut self.modal {
+            state.phase = AppUpdatePhase::Updating;
+            state.status_message = None;
+        }
+
+        Task::perform(
+            async {
+                tokio::task::spawn_blocking(apply_update)
+                    .await
+                    .map_err(|e| format!("Task join error: {}", e))
+                    .and_then(|r| r)
+            },
+            Message::AppUpdateApplied,
+        )
+    }
+
+    fn handle_app_update_applied(&mut self, result: Result<(), String>) -> Task<Message> {
+        match result {
+            Ok(()) => {
+                if let ModalState::AppUpdate(state) = &mut self.modal {
+                    state.phase = AppUpdatePhase::Completed;
+                    state.status_message = None;
+
+                    info!("App update complete. Restarting.");
+                    return Task::perform(
                         async {
                             tokio::time::sleep(Duration::from_secs(2)).await;
                         },
                         |_| Message::RestartApp,
-                    )
-                } else {
-                    // Silent update check when no updates found
-                    Task::none()
+                    );
                 }
+                Task::none()
             }
-            Err(_e) => {
-                // Log error but don't show user facing message for background check failure
+            Err(err) => {
+                if let ModalState::AppUpdate(state) = &mut self.modal {
+                    state.phase = AppUpdatePhase::Failed;
+                    state.status_message = Some(err);
+                }
                 Task::none()
             }
         }
+    }
+
+    fn close_app_update_modal(&mut self) -> Task<Message> {
+        if matches!(self.modal, ModalState::AppUpdate(_)) {
+            self.modal = ModalState::None;
+        }
+        Task::none()
     }
 
     fn restart_app(&mut self) -> Task<Message> {
@@ -700,6 +779,7 @@ impl Launcher {
             ModalState::ContextMenu { index } => Some(render_context_menu(*index, self.category)),
             ModalState::AppPicker(state) => Some(render_app_picker(state, &self.available_apps)),
             ModalState::SystemUpdate(state) => Some(render_system_update_modal(state)),
+            ModalState::AppUpdate(state) => Some(render_app_update_modal(state)),
             ModalState::SystemInfo(info) => Some(render_system_info_modal(info)),
             ModalState::AppNotFound {
                 item_name,
@@ -781,6 +861,15 @@ impl Launcher {
             }
         }
 
+        if let ModalState::AppUpdate(state) = &self.modal {
+            if state.phase == AppUpdatePhase::Updating {
+                subscriptions.push(
+                    iced::time::every(Duration::from_millis(150))
+                        .map(|_| Message::AppUpdateSpinnerTick),
+                );
+            }
+        }
+
         Subscription::batch(subscriptions)
     }
 
@@ -790,6 +879,9 @@ impl Launcher {
             ModalState::ContextMenu { .. } => Some(self.handle_context_menu_navigation(action)),
             ModalState::AppPicker(_) => Some(self.handle_app_picker_navigation(action)),
             ModalState::SystemUpdate(_) => Some(self.handle_system_update_navigation(action)),
+            ModalState::AppUpdate(state) => {
+                handle_app_update_navigation(state, action).map(|message| self.update(message))
+            }
             ModalState::SystemInfo(_) => Some(self.handle_system_info_navigation(action)),
             ModalState::AppNotFound { .. } => Some(self.handle_app_not_found_navigation(action)),
             ModalState::None => None,
@@ -958,6 +1050,7 @@ impl Launcher {
                     (Category::Apps, 1) => {
                         // Remove Entry
                         self.modal = ModalState::None;
+                        self.try_show_pending_update();
                         if let Some(removed) = self.apps.remove_selected() {
                             self.save_apps_config("Removed", "removing", &removed.name);
                         }
@@ -974,6 +1067,7 @@ impl Launcher {
                         } else {
                             // Close
                             self.modal = ModalState::None;
+                            self.try_show_pending_update();
                             return Task::none();
                         }
                     }
@@ -981,6 +1075,7 @@ impl Launcher {
             }
             Action::Back | Action::ContextMenu => {
                 self.modal = ModalState::None;
+                self.try_show_pending_update();
                 return Task::none();
             }
             _ => {}
@@ -993,6 +1088,7 @@ impl Launcher {
         match action {
             Action::Back | Action::ShowHelp => {
                 self.modal = ModalState::None;
+                self.try_show_pending_update();
             }
             _ => {} // Ignore other inputs while modal is open
         }
@@ -1019,10 +1115,12 @@ impl Launcher {
                     self.remove_missing_item(item_id, &item_name, category);
                 }
                 self.modal = ModalState::None;
+                self.try_show_pending_update();
                 return Task::none();
             }
             Action::Back | Action::ContextMenu | Action::ShowHelp => {
                 self.modal = ModalState::None;
+                self.try_show_pending_update();
                 return Task::none();
             }
             _ => {}

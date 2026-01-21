@@ -23,6 +23,7 @@ mod system_update;
 mod system_update_state;
 mod ui;
 mod ui_app_picker;
+mod ui_app_update_modal;
 mod ui_background;
 mod ui_components;
 mod ui_main_view;

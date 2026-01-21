@@ -10,6 +10,7 @@ use crate::model::AppEntry;
 use crate::storage::AppConfig;
 use crate::system_info::GamingSystemInfo;
 use crate::system_update_state::SystemUpdateProgress;
+use crate::updater::ReleaseInfo;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -31,6 +32,11 @@ pub enum Message {
     CloseSystemUpdateModal,
     CancelSystemUpdate,
     RequestReboot,
+    // App Update messages
+    AppUpdateCheckCompleted(Result<Option<ReleaseInfo>, String>),
+    StartAppUpdate,
+    AppUpdateApplied(Result<(), String>),
+    CloseAppUpdateModal,
     // System Info messages
     OpenSystemInfo,
     SystemInfoLoaded(Box<GamingSystemInfo>),
@@ -39,10 +45,10 @@ pub enum Message {
     GameExited,
     WindowOpened(window::Id),
     WindowFocused(window::Id),
-    AppUpdateResult(Result<bool, String>),
     RestartApp,
     GamepadBatteryUpdate(Vec<GamepadInfo>),
     SystemBatteryUpdated(Option<gilrs::PowerInfo>),
     Tick(DateTime<Local>),
+    AppUpdateSpinnerTick,
     None,
 }
