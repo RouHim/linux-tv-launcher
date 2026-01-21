@@ -4,7 +4,10 @@ use iced::widget::operation;
 use crate::ui_app_update_modal::{handle_app_update_navigation, render_app_update_modal};
 use crate::ui_modals::{render_app_not_found_modal, render_context_menu, render_help_modal};
 use crate::ui_system_update_modal::render_system_update_modal;
-use crate::ui_theme::*;
+use crate::ui_theme::{
+    BATTERY_CHECK_INTERVAL_SECS, GAME_POSTER_HEIGHT, GAME_POSTER_WIDTH, ITEM_SPACING,
+    MAIN_CONTENT_VERTICAL_PADDING, RESTART_DELAY_SECS,
+};
 use crate::updater::{apply_update, check_update_available, ReleaseInfo};
 use iced::window;
 use iced::{
@@ -70,6 +73,9 @@ pub struct Launcher {
     // App picker data
     available_apps: Vec<DesktopApp>,
     window_id: Option<window::Id>,
+    /// Flag to indicate we are recreating the window (e.g. after game exit)
+    /// and should skip initial checks like updates.
+    recreating_window: bool,
     // Game running state - disables input subscriptions
     game_running: bool,
     osk_manager: OskManager,
@@ -128,6 +134,7 @@ impl Launcher {
             available_apps: Vec::new(),
             modal: ModalState::None,
             window_id: None,
+            recreating_window: false,
             game_running: false,
             osk_manager: OskManager::new(),
             current_exe,
@@ -199,22 +206,7 @@ impl Launcher {
             }
             Message::Tick(t) => {
                 self.current_time = t;
-                let mut tasks = Vec::new();
-
-                // Check battery once a minute
-                if self.last_battery_check.elapsed().as_secs() >= 60 {
-                    self.last_battery_check = std::time::Instant::now();
-                    tasks.push(Task::perform(
-                        async {
-                            tokio::task::spawn_blocking(read_system_battery)
-                                .await
-                                .ok()
-                                .flatten()
-                        },
-                        Message::SystemBatteryUpdated,
-                    ));
-                }
-                Task::batch(tasks)
+                self.maybe_refresh_battery()
             }
             Message::AppUpdateSpinnerTick => {
                 if let ModalState::AppUpdate(state) = &mut self.modal {
@@ -243,32 +235,20 @@ impl Launcher {
             Message::OpenAppPicker => self.open_app_picker(),
             Message::AvailableAppsLoaded(apps) => self.handle_available_apps_loaded(apps),
             Message::AddSelectedApp => self.add_selected_app(),
-            Message::CloseAppPicker => {
-                self.modal = ModalState::None;
-                self.try_show_pending_update();
-                Task::none()
-            }
+            Message::CloseAppPicker => self.close_modal_none(),
             Message::AppPickerScrolled(vp) => self.handle_app_picker_scrolled(vp),
 
             // System Update Modal
             Message::StartSystemUpdate => self.start_system_update(),
             Message::SystemUpdateProgress(p) => self.handle_system_update_progress(p),
-            Message::CloseSystemUpdateModal => {
-                self.modal = ModalState::None;
-                self.try_show_pending_update();
-                Task::none()
-            }
+            Message::CloseSystemUpdateModal => self.close_modal_none(),
             Message::CancelSystemUpdate => self.cancel_system_update(),
             Message::RequestReboot => self.request_reboot(),
 
             // System Info Modal
             Message::OpenSystemInfo => self.open_system_info(),
             Message::SystemInfoLoaded(info) => self.handle_system_info_loaded(info),
-            Message::CloseSystemInfoModal => {
-                self.modal = ModalState::None;
-                self.try_show_pending_update();
-                Task::none()
-            }
+            Message::CloseSystemInfoModal => self.close_modal_none(),
 
             // Game Execution Monitoring
             Message::GameExited => self.handle_game_exited(),
@@ -287,38 +267,28 @@ impl Launcher {
 
     // --- Message Handlers ---
 
+    /// Checks if enough time has passed since the last battery check and spawns a refresh task if needed.
+    fn maybe_refresh_battery(&mut self) -> Task<Message> {
+        if self.last_battery_check.elapsed().as_secs() < BATTERY_CHECK_INTERVAL_SECS {
+            return Task::none();
+        }
+
+        self.last_battery_check = std::time::Instant::now();
+        Task::perform(
+            async {
+                tokio::task::spawn_blocking(read_system_battery)
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            Message::SystemBatteryUpdated,
+        )
+    }
+
     fn handle_apps_loaded(&mut self, result: Result<AppConfig, String>) -> Task<Message> {
         self.apps_loaded = true;
         match result {
-            Ok(config) => {
-                let items: Vec<LauncherItem> = config
-                    .apps
-                    .into_iter()
-                    .map(|entry| {
-                        let mut item = LauncherItem::from_app_entry(entry);
-                        if item.launch_key.is_none() {
-                            if let LauncherAction::Launch { exec } = &item.action {
-                                item.launch_key = Some(format!("desktop:{}", exec));
-                            }
-                        }
-                        item
-                    })
-                    .collect();
-                self.apps.set_items(items);
-                self.apps.sort_inplace();
-                self.status_message = None;
-
-                // Store game launch history for later use when games are loaded
-                self.game_launch_history = config.game_launch_history;
-
-                // If no env key was found, try using the one from config
-                if self.api_key.is_none() {
-                    if let Some(key) = config.steamgriddb_api_key {
-                        self.api_key = Some(key.clone());
-                        self.sgdb_client = SteamGridDbClient::new(key);
-                    }
-                }
-            }
+            Ok(config) => self.process_loaded_apps(config),
             Err(err) => {
                 self.apps.clear();
                 self.status_message = Some(err);
@@ -334,6 +304,36 @@ impl Launcher {
             },
             Message::GamesLoaded,
         )
+    }
+
+    fn process_loaded_apps(&mut self, config: AppConfig) {
+        let items: Vec<LauncherItem> = config
+            .apps
+            .into_iter()
+            .map(|entry| {
+                let mut item = LauncherItem::from_app_entry(entry);
+                if item.launch_key.is_none() {
+                    if let LauncherAction::Launch { exec } = &item.action {
+                        item.launch_key = Some(format!("desktop:{}", exec));
+                    }
+                }
+                item
+            })
+            .collect();
+        self.apps.set_items(items);
+        self.apps.sort_inplace();
+        self.status_message = None;
+
+        // Store game launch history for later use when games are loaded
+        self.game_launch_history = config.game_launch_history;
+
+        // If no env key was found, try using the one from config
+        if self.api_key.is_none() {
+            if let Some(key) = config.steamgriddb_api_key {
+                self.api_key = Some(key.clone());
+                self.sgdb_client = SteamGridDbClient::new(key);
+            }
+        }
     }
 
     fn handle_games_loaded(&mut self, games: Vec<AppEntry>) -> Task<Message> {
@@ -355,51 +355,56 @@ impl Launcher {
         self.games_loaded = true;
         self.status_message = None;
 
-        // Spawn tasks to fetch images
-        let mut tasks = Vec::new();
-        if let Some(cache) = &self.image_cache {
-            let target_width = (GAME_POSTER_WIDTH as f64 * self.scale_factor) as u32;
-            let target_height = (GAME_POSTER_HEIGHT as f64 * self.scale_factor) as u32;
-            let pipeline_template = GameImageFetcher::new(
-                cache.cache_dir.clone(),
-                self.sgdb_client.clone(),
-                self.searxng_client.clone(),
-                target_width,
-                target_height,
-            );
+        self.create_image_fetch_tasks()
+    }
 
-            tasks = self
-                .games
-                .items
-                .par_iter()
-                .map(|game| {
-                    let game_id = game.id;
-                    let game_name = game.name.clone();
-                    let source_image_url = game.source_image_url.clone();
-                    let steam_appid = game.steam_appid.clone();
-                    let pipeline = pipeline_template.clone();
+    fn create_image_fetch_tasks(&self) -> Task<Message> {
+        let Some(cache) = &self.image_cache else {
+            return Task::none();
+        };
 
-                    Task::perform(
-                        async move {
-                            tokio::task::spawn_blocking(move || {
-                                pipeline.fetch(
-                                    game_id,
-                                    &game_name,
-                                    source_image_url.as_deref(),
-                                    steam_appid.as_deref(),
-                                )
-                            })
-                            .await
-                            .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
-                        },
-                        |res| match res {
-                            Ok(Some((id, path))) => Message::ImageFetched(id, path),
-                            _ => Message::None,
-                        },
-                    )
-                })
-                .collect();
-        }
+        let target_width = (GAME_POSTER_WIDTH as f64 * self.scale_factor) as u32;
+        let target_height = (GAME_POSTER_HEIGHT as f64 * self.scale_factor) as u32;
+        let pipeline_template = GameImageFetcher::new(
+            cache.cache_dir.clone(),
+            self.sgdb_client.clone(),
+            self.searxng_client.clone(),
+            target_width,
+            target_height,
+        );
+
+        let tasks: Vec<_> = self
+            .games
+            .items
+            .par_iter()
+            .map(|game| {
+                let game_id = game.id;
+                let game_name = game.name.clone();
+                let source_image_url = game.source_image_url.clone();
+                let steam_appid = game.steam_appid.clone();
+                let pipeline = pipeline_template.clone();
+
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            pipeline.fetch(
+                                game_id,
+                                &game_name,
+                                source_image_url.as_deref(),
+                                steam_appid.as_deref(),
+                            )
+                        })
+                        .await
+                        .map_err(|e| anyhow::anyhow!("Task join error: {}", e))?
+                    },
+                    |res| match res {
+                        Ok(Some((id, path))) => Message::ImageFetched(id, path),
+                        _ => Message::None,
+                    },
+                )
+            })
+            .collect();
+
         Task::batch(tasks)
     }
 
@@ -412,6 +417,12 @@ impl Launcher {
 
     fn handle_window_opened(&mut self, id: window::Id) -> Task<Message> {
         self.window_id = Some(id);
+
+        // If we are recreating the window (returning from game), skip the update check
+        if self.recreating_window {
+            self.recreating_window = false;
+            return Task::none();
+        }
 
         if cfg!(debug_assertions) {
             info!("Debug mode detected: Skipping app update check");
@@ -438,6 +449,16 @@ impl Launcher {
     }
 
     fn handle_available_apps_loaded(&mut self, apps: Vec<DesktopApp>) -> Task<Message> {
+        self.available_apps = self.filter_available_apps(apps);
+
+        if let Some(state) = self.app_picker_state_mut() {
+            state.selected_index = 0;
+        }
+        self.update_app_picker_cols();
+        self.snap_to_picker_selection()
+    }
+
+    fn filter_available_apps(&self, apps: Vec<DesktopApp>) -> Vec<DesktopApp> {
         // Filter out apps already added (by exec command)
         let existing_execs: std::collections::HashSet<_> = self
             .apps
@@ -449,15 +470,9 @@ impl Launcher {
             })
             .collect();
 
-        self.available_apps = apps
-            .into_iter()
+        apps.into_iter()
             .filter(|app| !existing_execs.contains(&app.exec))
-            .collect();
-        if let Some(state) = self.app_picker_state_mut() {
-            state.selected_index = 0;
-        }
-        self.update_app_picker_cols();
-        self.snap_to_picker_selection()
+            .collect()
     }
 
     fn add_selected_app(&mut self) -> Task<Message> {
@@ -486,8 +501,7 @@ impl Launcher {
 
             // Remove from available apps and close picker
             self.available_apps.remove(selected_index);
-            self.modal = ModalState::None;
-            self.try_show_pending_update();
+            self.close_modal();
         }
         Task::none()
     }
@@ -583,9 +597,12 @@ impl Launcher {
             };
             let (new_id, open_task) = window::open(settings);
             self.window_id = Some(new_id);
+            self.recreating_window = true;
 
+            // Open the new window. We use the recreating_window flag to ensure
+            // the subsequent WindowOpened event doesn't trigger another update check.
             Task::batch(vec![
-                open_task.map(Message::WindowOpened),
+                open_task.map(|_| Message::None),
                 window::close(old_id),
             ])
         } else {
@@ -622,6 +639,21 @@ impl Launcher {
         }
     }
 
+    /// Close the current modal and attempt to show any pending update.
+    /// Use this helper instead of manually setting `self.modal = ModalState::None`
+    /// followed by `self.try_show_pending_update()`.
+    fn close_modal(&mut self) {
+        self.modal = ModalState::None;
+        self.try_show_pending_update();
+    }
+
+    /// Convenience method that closes the modal and returns `Task::none()`.
+    /// Use this to reduce boilerplate in navigation handlers.
+    fn close_modal_none(&mut self) -> Task<Message> {
+        self.close_modal();
+        Task::none()
+    }
+
     fn start_app_update(&mut self) -> Task<Message> {
         if let ModalState::AppUpdate(state) = &mut self.modal {
             state.phase = AppUpdatePhase::Updating;
@@ -649,7 +681,7 @@ impl Launcher {
                     info!("App update complete. Restarting.");
                     return Task::perform(
                         async {
-                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            tokio::time::sleep(Duration::from_secs(RESTART_DELAY_SECS)).await;
                         },
                         |_| Message::RestartApp,
                     );
@@ -681,11 +713,9 @@ impl Launcher {
     }
 
     fn update_app_picker_cols(&mut self) {
-        let available_width = self.window_width * 0.8 - 80.0; // 80% width minus padding
-        let item_space = ICON_ITEM_WIDTH + 10.0;
-        let cols = (available_width / item_space).floor() as usize;
+        let width = self.window_width;
         if let Some(state) = self.app_picker_state_mut() {
-            state.cols = cols.max(1);
+            state.update_cols(width);
         }
     }
 
@@ -717,8 +747,8 @@ impl Launcher {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .padding(iced::Padding {
-                top: 80.0,
-                bottom: 80.0,
+                top: MAIN_CONTENT_VERTICAL_PADDING,
+                bottom: MAIN_CONTENT_VERTICAL_PADDING,
                 ..Default::default()
             })
             .style(|_theme| iced::widget::container::Style {
@@ -816,31 +846,7 @@ impl Launcher {
             _ => None,
         });
 
-        let keyboard = iced::event::listen_with(|event, status, _window| {
-            if let iced::event::Status::Captured = status {
-                return None;
-            }
-
-            match event {
-                Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => match key.as_ref() {
-                    Key::Named(Named::ArrowUp) => Some(Message::Input(Action::Up)),
-                    Key::Named(Named::ArrowDown) => Some(Message::Input(Action::Down)),
-                    Key::Named(Named::ArrowLeft) => Some(Message::Input(Action::Left)),
-                    Key::Named(Named::ArrowRight) => Some(Message::Input(Action::Right)),
-                    Key::Named(Named::Enter) => Some(Message::Input(Action::Select)),
-                    Key::Named(Named::Escape) => Some(Message::Input(Action::Back)),
-                    Key::Named(Named::Tab) => Some(Message::Input(Action::NextCategory)),
-                    Key::Named(Named::F4) => Some(Message::Input(Action::Quit)),
-                    Key::Character("c") => Some(Message::Input(Action::ContextMenu)),
-                    Key::Character("+") | Key::Character("a") => {
-                        Some(Message::Input(Action::AddApp))
-                    }
-                    Key::Character("-") => Some(Message::Input(Action::ShowHelp)),
-                    _ => None,
-                },
-                _ => None,
-            }
-        });
+        let keyboard = self.build_keyboard_subscription();
 
         let mut subscriptions = vec![gamepad, keyboard, window_events];
 
@@ -873,6 +879,34 @@ impl Launcher {
         Subscription::batch(subscriptions)
     }
 
+    fn build_keyboard_subscription(&self) -> Subscription<Message> {
+        iced::event::listen_with(|event, status, _window| {
+            if let iced::event::Status::Captured = status {
+                return None;
+            }
+
+            match event {
+                Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => match key.as_ref() {
+                    Key::Named(Named::ArrowUp) => Some(Message::Input(Action::Up)),
+                    Key::Named(Named::ArrowDown) => Some(Message::Input(Action::Down)),
+                    Key::Named(Named::ArrowLeft) => Some(Message::Input(Action::Left)),
+                    Key::Named(Named::ArrowRight) => Some(Message::Input(Action::Right)),
+                    Key::Named(Named::Enter) => Some(Message::Input(Action::Select)),
+                    Key::Named(Named::Escape) => Some(Message::Input(Action::Back)),
+                    Key::Named(Named::Tab) => Some(Message::Input(Action::NextCategory)),
+                    Key::Named(Named::F4) => Some(Message::Input(Action::Quit)),
+                    Key::Character("c") => Some(Message::Input(Action::ContextMenu)),
+                    Key::Character("+") | Key::Character("a") => {
+                        Some(Message::Input(Action::AddApp))
+                    }
+                    Key::Character("-") => Some(Message::Input(Action::ShowHelp)),
+                    _ => None,
+                },
+                _ => None,
+            }
+        })
+    }
+
     fn handle_modal_navigation(&mut self, action: Action) -> Option<Task<Message>> {
         match &self.modal {
             ModalState::Help => Some(self.handle_help_modal_navigation(action)),
@@ -898,25 +932,22 @@ impl Launcher {
             self.exit_app();
         }
 
+        // Modal navigation takes priority
         if let Some(task) = self.handle_modal_navigation(action) {
             return task;
         }
 
+        // Handle global actions first
         match action {
             Action::ShowHelp => {
                 self.modal = ModalState::Help;
                 return Task::none();
             }
-            Action::AddApp => {
-                if self.category == Category::Apps {
-                    return self.update(Message::OpenAppPicker);
-                }
-                return Task::none();
+            Action::AddApp if self.category == Category::Apps => {
+                return self.update(Message::OpenAppPicker);
             }
-            Action::ContextMenu => {
-                if !self.current_category_list().is_empty() {
-                    self.modal = ModalState::ContextMenu { index: 0 };
-                }
+            Action::ContextMenu if !self.current_category_list().is_empty() => {
+                self.modal = ModalState::ContextMenu { index: 0 };
                 return Task::none();
             }
             Action::Back => {
@@ -926,15 +957,17 @@ impl Launcher {
             _ => {}
         }
 
-        // Handle navigation:
-        // Up/Down: Change Category (Row)
-        // Left/Right: Change Index in current Row
+        // Handle directional navigation
+        self.handle_directional_navigation(action)
+    }
+
+    /// Handles Up/Down/Left/Right and category cycling navigation.
+    fn handle_directional_navigation(&mut self, action: Action) -> Task<Message> {
         match action {
             Action::Up => {
                 let prev_cat = self.category.prev();
                 if prev_cat != self.category {
                     self.category = prev_cat;
-                    // self.clamp_selected_index(); // Already guaranteed by CategoryList state
                     return self.snap_to_main_selection();
                 }
             }
@@ -942,50 +975,30 @@ impl Launcher {
                 let next_cat = self.category.next();
                 if next_cat != self.category {
                     self.category = next_cat;
-                    // self.clamp_selected_index();
                     return self.snap_to_main_selection();
                 }
             }
-            Action::Left => {
-                if self.current_category_list_mut().move_left() {
-                    return self.snap_to_main_selection();
-                }
+            Action::Left if self.current_category_list_mut().move_left() => {
+                return self.snap_to_main_selection();
             }
-            Action::Right => {
-                if self.current_category_list_mut().move_right() {
-                    return self.snap_to_main_selection();
-                }
+            Action::Right if self.current_category_list_mut().move_right() => {
+                return self.snap_to_main_selection();
             }
-            Action::Select => {
-                if !self.current_category_list().is_empty() {
-                    return self.activate_selected();
-                }
+            Action::Select if !self.current_category_list().is_empty() => {
+                return self.activate_selected();
             }
-            // Keep tab cycling as fallback
             Action::NextCategory => {
                 self.cycle_category();
-                // self.clamp_selected_index(); // Handled by CategoryList logic implicitly or we might need a method if we wanted to reset
                 return self.snap_to_main_selection();
             }
             Action::PrevCategory => {
                 self.cycle_category_back();
-                // self.clamp_selected_index();
                 return self.snap_to_main_selection();
             }
             _ => {}
         }
 
         Task::none()
-    }
-
-    fn next_grid_index(current: usize, action: Action, cols: usize, len: usize) -> usize {
-        match action {
-            Action::Up if current >= cols => current - cols,
-            Action::Down if current + cols < len => current + cols,
-            Action::Left if current > 0 => current - 1,
-            Action::Right if current + 1 < len => current + 1,
-            _ => current,
-        }
     }
 
     fn snap_to_main_selection(&self) -> Task<Message> {
@@ -995,8 +1008,7 @@ impl Launcher {
         let (item_width, _item_height, _image_width, _image_height) =
             get_category_dimensions(self.category);
 
-        let spacing = 10.0;
-        let item_width_with_spacing = item_width + spacing;
+        let item_width_with_spacing = item_width + ITEM_SPACING;
 
         let target_x = list.selected_index as f32 * item_width_with_spacing;
         // Center the item roughly or just scroll to it?
@@ -1021,78 +1033,73 @@ impl Launcher {
     }
 
     fn handle_context_menu_navigation(&mut self, action: Action) -> Task<Message> {
-        let max_index = match self.category {
-            Category::Apps => 3,
-            Category::Games | Category::System => 2,
-        };
-
         let mut index = match &self.modal {
             ModalState::ContextMenu { index } => *index,
             _ => return Task::none(),
         };
 
+        // Context menu options vary by category:
+        // Apps: [Launch, Remove, Quit, Close] (indices 0-3)
+        // Games/System: [Launch, Quit, Close] (indices 0-2)
+        let max_index = if self.category == Category::Apps {
+            3
+        } else {
+            2
+        };
+
         match action {
-            Action::Up => {
-                index = index.saturating_sub(1);
-            }
-            Action::Down => {
-                if index < max_index {
-                    index += 1;
-                }
-            }
-            Action::Select => {
-                match (self.category, index) {
-                    (Category::Apps, 0) | (Category::Games, 0) | (Category::System, 0) => {
-                        // Launch
-                        self.modal = ModalState::None;
-                        return self.activate_selected();
-                    }
-                    (Category::Apps, 1) => {
-                        // Remove Entry
-                        self.modal = ModalState::None;
-                        self.try_show_pending_update();
-                        if let Some(removed) = self.apps.remove_selected() {
-                            self.save_apps_config("Removed", "removing", &removed.name);
-                        }
-                    }
-                    (_, _) => {
-                        let quit_index = if self.category == Category::Apps {
-                            2
-                        } else {
-                            1
-                        };
-                        if index == quit_index {
-                            // Quit Launcher
-                            self.exit_app();
-                        } else {
-                            // Close
-                            self.modal = ModalState::None;
-                            self.try_show_pending_update();
-                            return Task::none();
-                        }
-                    }
-                }
-            }
-            Action::Back | Action::ContextMenu => {
-                self.modal = ModalState::None;
-                self.try_show_pending_update();
-                return Task::none();
-            }
+            Action::Up => index = index.saturating_sub(1),
+            Action::Down => index = (index + 1).min(max_index),
+            Action::Back | Action::ContextMenu => return self.close_modal_none(),
+            Action::Select => return self.execute_context_menu_action(index),
             _ => {}
         }
+
         self.modal = ModalState::ContextMenu { index };
+        Task::none()
+    }
+
+    /// Executes the selected context menu action based on category and index.
+    fn execute_context_menu_action(&mut self, index: usize) -> Task<Message> {
+        // Index 0 is always "Launch" for all categories
+        if index == 0 {
+            self.modal = ModalState::None;
+            return self.activate_selected();
+        }
+
+        // For Apps category: index 1 = Remove, index 2 = Quit, index 3 = Close
+        // For Games/System: index 1 = Quit, index 2 = Close
+        let (remove_index, quit_index, close_index) = if self.category == Category::Apps {
+            (Some(1), 2, 3)
+        } else {
+            (None, 1, 2)
+        };
+
+        if remove_index == Some(index) {
+            self.close_modal();
+            if let Some(removed) = self.apps.remove_selected() {
+                self.save_apps_config("Removed", "removing", &removed.name);
+            }
+            return Task::none();
+        }
+
+        if index == quit_index {
+            self.exit_app();
+        }
+
+        // close_index or any unhandled index -> close modal
+        if index == close_index {
+            return self.close_modal_none();
+        }
+
         Task::none()
     }
 
     fn handle_help_modal_navigation(&mut self, action: Action) -> Task<Message> {
         match action {
-            Action::Back | Action::ShowHelp => {
-                self.modal = ModalState::None;
-                self.try_show_pending_update();
-            }
-            _ => {} // Ignore other inputs while modal is open
+            Action::Back | Action::ShowHelp => self.close_modal_none(),
+            _ => Task::none(), // Ignore other inputs while modal is open
         }
-        Task::none()
     }
 
     fn handle_app_not_found_navigation(&mut self, action: Action) -> Task<Message> {
@@ -1108,20 +1115,17 @@ impl Launcher {
 
         match action {
             Action::Left | Action::Right | Action::Up | Action::Down => {
-                selected_index = if selected_index == 0 { 1 } else { 0 };
+                // Toggle between the two options (Remove / Cancel)
+                selected_index = 1 - selected_index;
             }
             Action::Select => {
                 if selected_index == 0 {
                     self.remove_missing_item(item_id, &item_name, category);
                 }
-                self.modal = ModalState::None;
-                self.try_show_pending_update();
-                return Task::none();
+                return self.close_modal_none();
             }
             Action::Back | Action::ContextMenu | Action::ShowHelp => {
-                self.modal = ModalState::None;
-                self.try_show_pending_update();
-                return Task::none();
+                return self.close_modal_none();
             }
             _ => {}
         }
@@ -1176,82 +1180,32 @@ impl Launcher {
     }
 
     fn snap_to_picker_selection(&self) -> Task<Message> {
-        let Some(state) = self.app_picker_state() else {
-            return Task::none();
-        };
-
-        let row = state.selected_index / state.cols;
-        let item_height_with_spacing = ICON_ITEM_HEIGHT + 10.0;
-
-        let item_top = row as f32 * item_height_with_spacing;
-        let item_bottom = item_top + ICON_ITEM_HEIGHT;
-
-        let viewport_top = state.scroll_offset;
-        let viewport_height = if state.viewport_height > 0.0 {
-            state.viewport_height
-        } else {
-            // Fallback estimate if viewport not yet reported (e.g. initial render)
-            600.0
-        };
-        let viewport_bottom = viewport_top + viewport_height;
-
-        let target_y = if item_top < viewport_top {
-            // Scroll Up
-            Some(item_top)
-        } else if item_bottom > viewport_bottom {
-            // Scroll Down
-            Some(item_bottom - viewport_height + 10.0) // +10 for padding
-        } else {
-            // Already visible
-            None
-        };
-
-        if let Some(y) = target_y {
-            operation::scroll_to(
-                state.scrollable_id.clone(),
-                iced::widget::scrollable::AbsoluteOffset {
-                    x: 0.0,
-                    y: y.max(0.0),
-                },
-            )
-        } else {
-            Task::none()
-        }
+        self.app_picker_state()
+            .map(|state| state.snap_to_selection())
+            .unwrap_or(Task::none())
     }
 
     fn handle_app_picker_navigation(&mut self, action: Action) -> Task<Message> {
         let list_len = self.available_apps.len();
+
+        // Handle close actions regardless of app count
+        if matches!(action, Action::Back | Action::AddApp) {
+            return self.update(Message::CloseAppPicker);
+        }
+
         if list_len == 0 {
-            // No apps available, just handle close
-            match action {
-                Action::Back | Action::AddApp => {
-                    return self.update(Message::CloseAppPicker);
-                }
-                _ => {}
-            }
             return Task::none();
         }
 
-        let (mut selected_index, cols) = match self.app_picker_state() {
-            Some(state) => (state.selected_index, state.cols),
-            None => return Task::none(),
-        };
-
         match action {
-            Action::Select => {
-                return self.update(Message::AddSelectedApp);
-            }
-            Action::Back | Action::AddApp => {
-                return self.update(Message::CloseAppPicker);
-            }
+            Action::Select => return self.update(Message::AddSelectedApp),
             _ => {
-                selected_index = Self::next_grid_index(selected_index, action, cols, list_len);
+                if let Some(state) = self.app_picker_state_mut() {
+                    state.navigate(action, list_len);
+                }
             }
         }
 
-        if let Some(state) = self.app_picker_state_mut() {
-            state.selected_index = selected_index;
-        }
         self.snap_to_picker_selection()
     }
 

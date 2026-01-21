@@ -53,3 +53,14 @@ pub const COLOR_BATTERY_GOOD: Color = Color::from_rgb(0.3, 0.69, 0.31);
 pub const COLOR_BATTERY_MODERATE: Color = Color::from_rgb(1.0, 0.6, 0.0);
 pub const COLOR_BATTERY_LOW: Color = Color::from_rgb(0.96, 0.26, 0.21);
 pub const COLOR_BATTERY_CHARGING: Color = Color::from_rgb(0.13, 0.59, 0.95);
+
+// Layout Constants
+pub const MAIN_CONTENT_VERTICAL_PADDING: f32 = 80.0;
+pub const ITEM_SPACING: f32 = 10.0;
+pub const APP_PICKER_WIDTH_RATIO: f32 = 0.8;
+pub const APP_PICKER_PADDING: f32 = 80.0;
+pub const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
+
+// Timing Constants (in seconds)
+pub const BATTERY_CHECK_INTERVAL_SECS: u64 = 60;
+pub const RESTART_DELAY_SECS: u64 = 2;

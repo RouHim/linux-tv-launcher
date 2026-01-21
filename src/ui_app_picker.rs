@@ -1,9 +1,10 @@
 use iced::alignment::Horizontal;
 use iced::widget::Id;
-use iced::widget::{Column, Container, Grid, Scrollable, Text};
-use iced::{Color, Element, Length};
+use iced::widget::{operation, Column, Container, Grid, Scrollable, Text};
+use iced::{Color, Element, Length, Task};
 
 use crate::desktop_apps::DesktopApp;
+use crate::input::Action;
 use crate::messages::Message;
 use crate::ui_components::render_icon;
 use crate::ui_theme::*;
@@ -24,6 +25,70 @@ impl AppPickerState {
             scrollable_id: Id::unique(),
             scroll_offset: 0.0,
             viewport_height: 0.0,
+        }
+    }
+
+    pub fn update_cols(&mut self, window_width: f32) {
+        let available_width = window_width * APP_PICKER_WIDTH_RATIO - APP_PICKER_PADDING;
+        let item_space = ICON_ITEM_WIDTH + ITEM_SPACING;
+        let cols = (available_width / item_space).floor() as usize;
+        self.cols = cols.max(1);
+    }
+
+    pub fn snap_to_selection(&self) -> Task<Message> {
+        let row = self.selected_index / self.cols;
+        let item_height_with_spacing = ICON_ITEM_HEIGHT + ITEM_SPACING;
+
+        let item_top = row as f32 * item_height_with_spacing;
+        let item_bottom = item_top + ICON_ITEM_HEIGHT;
+
+        let viewport_top = self.scroll_offset;
+        // Use reported viewport height, or fallback estimate if not yet reported (e.g. initial render)
+        let viewport_height = if self.viewport_height > 0.0 {
+            self.viewport_height
+        } else {
+            DEFAULT_VIEWPORT_HEIGHT
+        };
+        let viewport_bottom = viewport_top + viewport_height;
+
+        let target_y = if item_top < viewport_top {
+            // Scroll Up
+            Some(item_top)
+        } else if item_bottom > viewport_bottom {
+            // Scroll Down
+            Some(item_bottom - viewport_height + 10.0) // +10 for padding
+        } else {
+            // Already visible
+            None
+        };
+
+        if let Some(y) = target_y {
+            operation::scroll_to(
+                self.scrollable_id.clone(),
+                iced::widget::scrollable::AbsoluteOffset {
+                    x: 0.0,
+                    y: y.max(0.0),
+                },
+            )
+        } else {
+            Task::none()
+        }
+    }
+
+    pub fn navigate(&mut self, action: Action, list_len: usize) {
+        if list_len == 0 {
+            return;
+        }
+        self.selected_index = Self::grid_navigate(self.selected_index, action, self.cols, list_len);
+    }
+
+    fn grid_navigate(current: usize, action: Action, cols: usize, len: usize) -> usize {
+        match action {
+            Action::Up if current >= cols => current - cols,
+            Action::Down if current + cols < len => current + cols,
+            Action::Left if current > 0 => current - 1,
+            Action::Right if current + 1 < len => current + 1,
+            _ => current,
         }
     }
 }
