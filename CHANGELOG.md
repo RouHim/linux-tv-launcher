@@ -1,3 +1,16 @@
+# [2.1.0](https://github.com/RouHim/rhinco-tv/compare/v2.0.3...v2.1.0) (2026-01-21)
+
+
+### Bug Fixes
+
+* **updater:** refactor update logic and add interactive UI ([2f3d12a](https://github.com/RouHim/rhinco-tv/commit/2f3d12aa0a06506c94b0223d29298dc84444a8e0))
+
+
+### Features
+
+* **ui:** add canvas background ([fc9f973](https://github.com/RouHim/rhinco-tv/commit/fc9f97338a17aefbbd3fa2c053a56be47d8a4aed))
+* **ui:** show system battery status ([fbbdc0f](https://github.com/RouHim/rhinco-tv/commit/fbbdc0f8d4c4918e8ea6e33596952ff69255f5f2))
+
 ## [2.0.3](https://github.com/RouHim/rhinco-tv/compare/v2.0.2...v2.0.3) (2026-01-20)
 
 
