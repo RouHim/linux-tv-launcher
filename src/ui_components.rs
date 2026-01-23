@@ -1,6 +1,6 @@
 use chrono::{DateTime, Local};
 use gilrs::PowerInfo;
-use iced::widget::{Container, Image, Row, Stack, Svg, Text};
+use iced::widget::{Container, Image, Row, Svg, Text};
 use iced::{Alignment, Color, ContentFit, Element, Length};
 use std::path::{Path, PathBuf};
 
@@ -62,32 +62,35 @@ where
         .into()
 }
 
-pub fn render_gamepad_infos<'a, Message>(infos: &'a [GamepadInfo]) -> Element<'a, Message>
+pub fn render_gamepad_infos<'a, Message>(
+    infos: &'a [GamepadInfo],
+    scale: f32,
+) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    let mut row = Row::new().spacing(24).align_y(Alignment::Center);
+    let mut row = Row::new().spacing(24.0 * scale).align_y(Alignment::Center);
 
     for info in infos.iter().take(4) {
         // Gamepad icon
         let gp_icon = if info.is_keyboard {
-            icons::keyboard_icon(22.0, Color::WHITE)
+            icons::keyboard_icon(22.0 * scale, Color::WHITE)
         } else {
-            icons::gamepad_icon(22.0, Color::WHITE)
+            icons::gamepad_icon(22.0 * scale, Color::WHITE)
         };
 
         let mut content = Row::new()
-            .spacing(8)
+            .spacing(8.0 * scale)
             .align_y(Alignment::Center)
             .push(gp_icon);
 
-        if let Some((battery_icon, _color)) = get_battery_visuals(info.power_info) {
+        if let Some((battery_icon, _color)) = get_battery_visuals(info.power_info, scale) {
             content = content.push(battery_icon);
         }
 
         let tooltip = iced::widget::Tooltip::new(
             content,
-            Text::new(&info.name).size(14),
+            Text::new(&info.name).size(14.0 * scale),
             iced::widget::tooltip::Position::Bottom,
         )
         .style(|_theme| iced::widget::container::Style {
@@ -102,28 +105,34 @@ where
     row.into()
 }
 
-pub fn get_battery_visuals<'a, Message>(power: PowerInfo) -> Option<(Element<'a, Message>, Color)>
+pub fn get_battery_visuals<'a, Message>(
+    power: PowerInfo,
+    scale: f32,
+) -> Option<(Element<'a, Message>, Color)>
 where
     Message: 'a,
 {
     match power {
         PowerInfo::Charged => {
             let color = COLOR_BATTERY_GOOD;
-            let icon = Stack::new()
-                .push(icons::battery_full_icon(18.0, color))
-                .push(icons::bolt_icon(12.0, color));
+            // Show battery and bolt side-by-side instead of overlapping
+            let icon = Row::new()
+                .push(icons::battery_full_icon(18.0 * scale, color))
+                .push(iced::widget::Space::new().width(4.0 * scale))
+                .push(icons::bolt_icon(12.0 * scale, color))
+                .align_y(Alignment::Center);
             Some((icon.into(), color))
         }
         PowerInfo::Charging(lvl) => {
             let color = COLOR_BATTERY_CHARGING;
-            let base = battery_level_icon(lvl, color);
-            let bolt = Container::new(icons::bolt_icon(12.0, color))
-                .width(18.0)
-                .height(18.0)
-                .center_x(Length::Fill)
-                .center_y(Length::Fill);
+            let base = battery_level_icon(lvl, color, scale);
+            let bolt = icons::bolt_icon(12.0 * scale, color);
 
-            let icon = Stack::new().push(base).push(bolt);
+            let icon = Row::new()
+                .push(base)
+                .push(iced::widget::Space::new().width(4.0 * scale))
+                .push(bolt)
+                .align_y(Alignment::Center);
             Some((icon.into(), color))
         }
         PowerInfo::Discharging(lvl) => {
@@ -134,19 +143,19 @@ where
             } else {
                 COLOR_BATTERY_LOW
             };
-            let icon = battery_level_icon(lvl, color);
+            let icon = battery_level_icon(lvl, color, scale);
             Some((icon, color))
         }
-        PowerInfo::Wired => Some((icons::plug_icon(18.0, Color::WHITE), Color::WHITE)),
+        PowerInfo::Wired => Some((icons::plug_icon(18.0 * scale, Color::WHITE), Color::WHITE)),
         PowerInfo::Unknown => None,
     }
 }
 
-fn battery_level_icon<'a, Message>(lvl: u8, color: Color) -> Element<'a, Message>
+fn battery_level_icon<'a, Message>(lvl: u8, color: Color, scale: f32) -> Element<'a, Message>
 where
     Message: 'a,
 {
-    let size = 18.0;
+    let size = 18.0 * scale;
     let icon = match lvl {
         91..=u8::MAX => icons::battery_full_icon(size, color),
         61..=90 => icons::battery_three_quarters_icon(size, color),
@@ -157,13 +166,13 @@ where
     icon
 }
 
-pub fn render_clock<'a, Message>(time: &DateTime<Local>) -> Element<'a, Message>
+pub fn render_clock<'a, Message>(time: &DateTime<Local>, scale: f32) -> Element<'a, Message>
 where
     Message: 'a,
 {
     Text::new(time.format("%H:%M").to_string())
         .font(SANSATION)
-        .size(32)
+        .size(32.0 * scale)
         .color(COLOR_TEXT_BRIGHT)
         .into()
 }

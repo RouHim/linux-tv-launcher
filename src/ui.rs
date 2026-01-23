@@ -6,7 +6,8 @@ use crate::ui_modals::{render_app_not_found_modal, render_context_menu, render_h
 use crate::ui_system_update_modal::render_system_update_modal;
 use crate::ui_theme::{
     BATTERY_CHECK_INTERVAL_SECS, GAME_POSTER_HEIGHT, GAME_POSTER_WIDTH, ITEM_SPACING,
-    MAIN_CONTENT_VERTICAL_PADDING, RESTART_DELAY_SECS,
+    MAIN_CONTENT_VERTICAL_PADDING, MAX_UI_SCALE, MIN_UI_SCALE, REFERENCE_WINDOW_HEIGHT,
+    RESTART_DELAY_SECS,
 };
 use crate::updater::{apply_update, check_update_available, ReleaseInfo};
 use iced::window;
@@ -69,6 +70,8 @@ pub struct Launcher {
     image_cache: Option<ImageCache>,
     scale_factor: f64,
     window_width: f32,
+    window_height: f32, // Track window height for scaling
+    ui_scale: f32,      // Calculated UI scale factor
     modal: ModalState,
     // App picker data
     available_apps: Vec<DesktopApp>,
@@ -116,6 +119,10 @@ impl Launcher {
         system_items_vec.push(LauncherItem::system_info());
         system_items_vec.push(LauncherItem::exit());
 
+        // Default 1080p assumption until resize event
+        let default_height = 720.0; // Assume 720p minimum safe start
+        let initial_scale = default_height / REFERENCE_WINDOW_HEIGHT;
+
         let launcher = Self {
             apps: CategoryList::new(Vec::new()),
             games: CategoryList::new(Vec::new()),
@@ -131,6 +138,8 @@ impl Launcher {
             image_cache,
             scale_factor: 1.0,
             window_width: 1280.0,
+            window_height: default_height,
+            ui_scale: initial_scale,
             available_apps: Vec::new(),
             modal: ModalState::None,
             window_id: None,
@@ -219,8 +228,12 @@ impl Launcher {
             Message::AppUpdateApplied(res) => self.handle_app_update_applied(res),
             Message::CloseAppUpdateModal => self.close_app_update_modal(),
             Message::RestartApp => self.restart_app(),
-            Message::WindowResized(w) => {
+            Message::WindowResized(w, h) => {
                 self.window_width = w;
+                self.window_height = h;
+                // Calculate UI scale based on reference height
+                // Clamp to reasonable limits to avoid UI disappearing or becoming massive
+                self.ui_scale = (h / REFERENCE_WINDOW_HEIGHT).clamp(MIN_UI_SCALE, MAX_UI_SCALE);
                 Task::none()
             }
             Message::WindowFocused(id) => {
@@ -737,7 +750,7 @@ impl Launcher {
         let content = self.render_category();
 
         let mut column = Column::new().push(content);
-        if let Some(status) = render_status(&self.status_message) {
+        if let Some(status) = render_status(&self.status_message, self.ui_scale) {
             column = column.push(status);
         }
 
@@ -747,8 +760,8 @@ impl Launcher {
             .center_x(Length::Fill)
             .center_y(Length::Fill)
             .padding(iced::Padding {
-                top: MAIN_CONTENT_VERTICAL_PADDING,
-                bottom: MAIN_CONTENT_VERTICAL_PADDING,
+                top: MAIN_CONTENT_VERTICAL_PADDING * self.ui_scale,
+                bottom: MAIN_CONTENT_VERTICAL_PADDING * self.ui_scale,
                 ..Default::default()
             })
             .style(|_theme| iced::widget::container::Style {
@@ -759,21 +772,21 @@ impl Launcher {
 
         let mut status_bar_row = iced::widget::Row::new()
             .align_y(iced::Alignment::Center)
-            .push(render_gamepad_infos(&self.gamepad_infos))
+            .push(render_gamepad_infos(&self.gamepad_infos, self.ui_scale))
             .push(iced::widget::Space::new().width(Length::Fill));
 
         if let Some(battery_info) = self.system_battery {
-            if let Some((icon, _color)) = get_battery_visuals(battery_info) {
+            if let Some((icon, _color)) = get_battery_visuals(battery_info, self.ui_scale) {
                 status_bar_row = status_bar_row
                     .push(icon)
-                    .push(iced::widget::Space::new().width(16)); // Spacing between battery and clock
+                    .push(iced::widget::Space::new().width(16.0 * self.ui_scale)); // Spacing between battery and clock
             }
         }
 
-        let status_bar_row = status_bar_row.push(render_clock(&self.current_time));
+        let status_bar_row = status_bar_row.push(render_clock(&self.current_time, self.ui_scale));
 
         let status_bar = Container::new(status_bar_row)
-            .padding([10, 20])
+            .padding([10.0 * self.ui_scale, 20.0 * self.ui_scale])
             .width(Length::Fill);
 
         let background = self.background.view();
@@ -787,7 +800,7 @@ impl Launcher {
         if matches!(&self.modal, ModalState::None) {
             let hint_layer = Column::new()
                 .push(iced::widget::Space::new().height(Length::Fill))
-                .push(render_controls_hint());
+                .push(render_controls_hint(self.ui_scale));
             base_stack = base_stack.push(hint_layer);
         }
 
@@ -840,7 +853,7 @@ impl Launcher {
                 Some(Message::ScaleFactorChanged(scale_factor as f64))
             }
             Event::Window(iced::window::Event::Resized(size)) => {
-                Some(Message::WindowResized(size.width))
+                Some(Message::WindowResized(size.width, size.height))
             }
             Event::Window(iced::window::Event::Focused) => Some(Message::WindowFocused(window_id)),
             _ => None,
@@ -1006,9 +1019,9 @@ impl Launcher {
         let scroll_id = list.scroll_id.clone();
 
         let (item_width, _item_height, _image_width, _image_height) =
-            get_category_dimensions(self.category);
+            get_category_dimensions(self.category, self.ui_scale);
 
-        let item_width_with_spacing = item_width + ITEM_SPACING;
+        let item_width_with_spacing = item_width + (ITEM_SPACING * self.ui_scale);
 
         let target_x = list.selected_index as f32 * item_width_with_spacing;
         // Center the item roughly or just scroll to it?
@@ -1369,6 +1382,7 @@ impl Launcher {
             &self.apps,
             apps_msg,
             self.default_icon_handle.clone(),
+            self.ui_scale,
         );
 
         let games_msg = if !self.games_loaded {
@@ -1383,6 +1397,7 @@ impl Launcher {
             &self.games,
             games_msg,
             self.default_icon_handle.clone(),
+            self.ui_scale,
         );
 
         let system_row = render_section_row(
@@ -1391,53 +1406,42 @@ impl Launcher {
             &self.system_items,
             "No system actions available.".to_string(),
             self.default_icon_handle.clone(),
+            self.ui_scale,
         );
 
         Column::new()
             .push(games_row)
             .push(apps_row)
             .push(system_row)
-            .spacing(30)
+            .spacing(40.0 * self.ui_scale) // Adjusted spacing with scale
             .into()
     }
 
-    fn save_apps_config(&self, _success_action: &str, failure_action: &str, app_name: &str) {
-        let apps_to_save: Vec<AppEntry> = self
+    fn save_apps_config(&self, action_desc: &str, action_gerund: &str, item_name: &str) {
+        let mut config = match load_config() {
+            Ok(cfg) => cfg,
+            Err(_) => AppConfig::default(),
+        };
+
+        config.apps = self
             .apps
             .items
             .iter()
-            .filter_map(|item| match &item.action {
-                LauncherAction::Launch { exec } => Some(AppEntry {
-                    id: item.id,
-                    name: item.name.clone(),
-                    exec: exec.clone(),
-                    icon: item.icon.clone(),
-                    launch_key: item.launch_key.clone(),
-                    game_executable: item.game_executable.clone(),
-                    last_started: item.last_started,
-                    steam_appid: item.steam_appid.clone(),
-                }),
-
-                _ => None,
-            })
+            .filter(|item| matches!(item.action, LauncherAction::Launch { .. }))
+            .map(|item| item.to_app_entry())
             .collect();
 
-        let config = AppConfig {
-            apps: apps_to_save,
-            steamgriddb_api_key: self.api_key.clone(),
-            game_launch_history: self.game_launch_history.clone(),
-        };
+        // Also save game launch history
+        config.game_launch_history = self.game_launch_history.clone();
 
-        if let Err(err) = save_config(&config) {
-            error!(
-                "Failed to save config after {} app {}: {}",
-                failure_action, app_name, err
-            );
+        match save_config(&config) {
+            Ok(_) => info!("{} '{}' and saved config.", action_desc, item_name),
+            Err(e) => error!("Error saving config after {} '{}': {}", action_gerund, item_name, e),
         }
     }
 
     fn apps_empty_message(&self) -> String {
-        "No apps configured. Press Y or + to add an app.".to_string()
+        "No desktop applications found.".to_string()
     }
 }
 

@@ -60,6 +60,9 @@ pub const ITEM_SPACING: f32 = 10.0;
 pub const APP_PICKER_WIDTH_RATIO: f32 = 0.8;
 pub const APP_PICKER_PADDING: f32 = 80.0;
 pub const DEFAULT_VIEWPORT_HEIGHT: f32 = 600.0;
+pub const REFERENCE_WINDOW_HEIGHT: f32 = 1080.0;
+pub const MIN_UI_SCALE: f32 = 0.5;
+pub const MAX_UI_SCALE: f32 = 3.0;
 
 // Timing Constants (in seconds)
 pub const BATTERY_CHECK_INTERVAL_SECS: u64 = 60;

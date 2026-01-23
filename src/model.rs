@@ -137,6 +137,24 @@ impl LauncherItem {
             LauncherAction::Exit,
         )
     }
+
+    pub fn to_app_entry(&self) -> AppEntry {
+        let exec = match &self.action {
+            LauncherAction::Launch { exec } => exec.clone(),
+            _ => String::new(),
+        };
+
+        AppEntry {
+            id: self.id,
+            name: self.name.clone(),
+            exec,
+            icon: self.icon.clone(),
+            launch_key: self.launch_key.clone(),
+            game_executable: self.game_executable.clone(),
+            last_started: self.last_started,
+            steam_appid: self.steam_appid.clone(),
+        }
+    }
 }
 
 impl Default for LauncherItem {
