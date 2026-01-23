@@ -129,13 +129,24 @@ fn render_item<'a>(
     default_icon_handle: Option<iced::widget::svg::Handle>,
 ) -> Element<'a, Message> {
     let icon_widget: Element<'a, Message> = if let Some(sys_icon) = &item.system_icon {
-        match sys_icon {
-            SystemIcon::PowerOff => icons::power_off_icon(image_width),
-            SystemIcon::Pause => icons::pause_icon(image_width),
-            SystemIcon::ArrowsRotate => icons::arrows_rotate_icon(image_width),
-            SystemIcon::ExitBracket => icons::exit_icon(image_width),
-            SystemIcon::Info => icons::info_icon(image_width),
-        }
+        // Use 60% of the container width for the icon size to ensure it fits comfortably
+        // Font glyphs at 100% size often overflow their bounding box
+        let icon_size = image_width * 0.6;
+
+        let icon = match sys_icon {
+            SystemIcon::PowerOff => icons::power_off_icon(icon_size),
+            SystemIcon::Pause => icons::pause_icon(icon_size),
+            SystemIcon::ArrowsRotate => icons::arrows_rotate_icon(icon_size),
+            SystemIcon::ExitBracket => icons::exit_icon(icon_size),
+            SystemIcon::Info => icons::info_icon(icon_size),
+        };
+
+        Container::new(icon)
+            .width(Length::Fixed(image_width))
+            .height(Length::Fixed(image_height))
+            .center_x(Length::Fixed(image_width))
+            .center_y(Length::Fixed(image_height))
+            .into()
     } else {
         render_icon(
             item.icon.as_ref().map(PathBuf::from),
