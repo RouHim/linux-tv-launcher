@@ -14,6 +14,7 @@ mod messages;
 mod model;
 mod osk;
 mod searxng;
+mod sleep_inhibit;
 mod steamgriddb;
 mod storage;
 mod sys_utils;
