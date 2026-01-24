@@ -1,3 +1,16 @@
+# [2.2.0](https://github.com/RouHim/rhinco-tv/compare/v2.1.0...v2.2.0) (2026-01-24)
+
+
+### Bug Fixes
+
+* **ui:** adjust system icon size to prevent overflow ([218bec5](https://github.com/RouHim/rhinco-tv/commit/218bec564557fa9cb9574cf213c654ed5c6332ef))
+* **ui:** ensure consistent scaling in status bar components ([de32fbb](https://github.com/RouHim/rhinco-tv/commit/de32fbb1a8e4dfd33ca415a35a902984681b71b4))
+
+
+### Features
+
+* **ui:** add main view vertical scrolling with controller/keyboard navigation ([97235d8](https://github.com/RouHim/rhinco-tv/commit/97235d82afb062ad6b18badb029d815435d804ff))
+
 # [2.1.0](https://github.com/RouHim/rhinco-tv/compare/v2.0.3...v2.1.0) (2026-01-21)
 
 
