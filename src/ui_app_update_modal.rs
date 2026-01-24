@@ -8,16 +8,16 @@ use crate::ui_theme::*;
 
 const SPINNER_CHARS: [&str; 4] = ["◐", "◓", "◑", "◒"];
 
-pub fn render_app_update_modal<'a>(state: &'a AppUpdateState) -> Element<'a, Message> {
+pub fn render_app_update_modal<'a>(state: &'a AppUpdateState, scale: f32) -> Element<'a, Message> {
     let spinner = SPINNER_CHARS[state.spinner_tick % SPINNER_CHARS.len()];
 
     let title = Text::new("App Update")
         .font(SANSATION)
-        .size(28)
+        .size(scaled(BASE_FONT_HEADER, scale))
         .color(Color::WHITE);
 
     let title_container = Container::new(title)
-        .padding(20)
+        .padding(scaled(BASE_PADDING_MEDIUM, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
@@ -35,7 +35,7 @@ pub fn render_app_update_modal<'a>(state: &'a AppUpdateState) -> Element<'a, Mes
     };
 
     let status_row = Row::new()
-        .spacing(16)
+        .spacing(scaled(16.0, scale))
         .align_y(iced::Alignment::Center)
         .push(
             Text::new(match state.phase {
@@ -45,17 +45,19 @@ pub fn render_app_update_modal<'a>(state: &'a AppUpdateState) -> Element<'a, Mes
                 AppUpdatePhase::Prompt => "↑".to_string(),
             })
             .font(SANSATION)
-            .size(32)
+            .size(scaled(BASE_FONT_DISPLAY, scale))
             .color(status_color),
         )
         .push(
             Text::new(status_label)
                 .font(SANSATION)
-                .size(22)
+                .size(scaled(22.0, scale))
                 .color(status_color),
         );
 
-    let mut body_column = Column::new().spacing(16).align_x(iced::Alignment::Center);
+    let mut body_column = Column::new()
+        .spacing(scaled(16.0, scale))
+        .align_x(iced::Alignment::Center);
 
     body_column = body_column.push(status_row);
 
@@ -70,11 +72,11 @@ pub fn render_app_update_modal<'a>(state: &'a AppUpdateState) -> Element<'a, Mes
             Container::new(
                 Text::new(body)
                     .font(SANSATION)
-                    .size(16)
+                    .size(scaled(BASE_FONT_MEDIUM, scale))
                     .color(COLOR_TEXT_MUTED),
             )
             .width(Length::Fill)
-            .padding(10),
+            .padding(scaled(BASE_PADDING_SMALL, scale)),
         );
     }
 
@@ -83,10 +85,10 @@ pub fn render_app_update_modal<'a>(state: &'a AppUpdateState) -> Element<'a, Mes
             Container::new(
                 Text::new(message)
                     .font(SANSATION)
-                    .size(16)
+                    .size(scaled(BASE_FONT_MEDIUM, scale))
                     .color(COLOR_TEXT_MUTED),
             )
-            .padding(10)
+            .padding(scaled(BASE_PADDING_SMALL, scale))
             .center_x(Length::Fill),
         );
     }
@@ -100,11 +102,11 @@ pub fn render_app_update_modal<'a>(state: &'a AppUpdateState) -> Element<'a, Mes
 
     let hint = Text::new(hint_text)
         .font(SANSATION)
-        .size(14)
+        .size(scaled(BASE_FONT_SMALL, scale))
         .color(COLOR_TEXT_HINT);
 
     let hint_container = Container::new(hint)
-        .padding(10)
+        .padding(scaled(BASE_PADDING_SMALL, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
@@ -118,18 +120,19 @@ pub fn render_app_update_modal<'a>(state: &'a AppUpdateState) -> Element<'a, Mes
                 .center_y(Length::Fill),
         )
         .push(hint_container)
-        .spacing(10);
+        .spacing(scaled(BASE_PADDING_SMALL, scale));
 
+    let border_radius = scaled(10.0, scale);
     let modal_box = Container::new(modal_column)
-        .width(Length::Fixed(600.0))
-        .height(Length::Fixed(360.0))
-        .padding(20)
-        .style(|_| iced::widget::container::Style {
+        .width(scaled_fixed(MODAL_WIDTH_LARGE, scale))
+        .height(scaled_fixed(MODAL_HEIGHT_MEDIUM, scale))
+        .padding(scaled(BASE_PADDING_MEDIUM, scale))
+        .style(move |_| iced::widget::container::Style {
             background: Some(COLOR_PANEL.into()),
             border: iced::Border {
                 color: Color::WHITE,
                 width: 1.0,
-                radius: 10.0.into(),
+                radius: border_radius.into(),
             },
             ..Default::default()
         });

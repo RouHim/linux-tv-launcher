@@ -5,7 +5,10 @@ use crate::messages::Message;
 use crate::system_update_state::{SystemUpdateState, UpdateStatus};
 use crate::ui_theme::*;
 
-pub fn render_system_update_modal<'a>(state: &SystemUpdateState) -> Element<'a, Message> {
+pub fn render_system_update_modal<'a>(
+    state: &SystemUpdateState,
+    scale: f32,
+) -> Element<'a, Message> {
     let spinner_chars = ["◐", "◓", "◑", "◒"];
     let spinner = spinner_chars[state.spinner_tick % 4];
 
@@ -79,51 +82,54 @@ pub fn render_system_update_modal<'a>(state: &SystemUpdateState) -> Element<'a, 
 
     let title = Text::new("System Update")
         .font(SANSATION)
-        .size(28)
+        .size(scaled(BASE_FONT_HEADER, scale))
         .color(Color::WHITE);
 
     let title_container = Container::new(title)
-        .padding(20)
+        .padding(scaled(BASE_PADDING_MEDIUM, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
-    let mut status_column = Column::new().spacing(20).align_x(iced::Alignment::Center);
+    let mut status_column = Column::new()
+        .spacing(scaled(BASE_PADDING_MEDIUM, scale))
+        .align_x(iced::Alignment::Center);
 
     let status_row = Row::new()
-        .spacing(20)
+        .spacing(scaled(BASE_PADDING_MEDIUM, scale))
         .align_y(iced::Alignment::Center)
         .push(
             Text::new(icon_text)
                 .font(SANSATION)
-                .size(40)
+                .size(scaled(40.0, scale))
                 .color(status_color),
         )
         .push(
             Text::new(status_message)
                 .font(SANSATION)
-                .size(24)
+                .size(scaled(BASE_FONT_TITLE, scale))
                 .color(status_color),
         );
 
     status_column = status_column.push(status_row);
 
     if let Some(value) = progress_bar_value {
-        let bar = ProgressBar::new(0.0..=100.0, value).style(|_theme| {
+        let border_radius = scaled(5.0, scale);
+        let bar = ProgressBar::new(0.0..=100.0, value).style(move |_theme| {
             iced::widget::progress_bar::Style {
                 background: COLOR_PANEL.into(),
                 bar: COLOR_ACCENT.into(),
                 border: iced::Border {
                     color: Color::WHITE,
                     width: 1.0,
-                    radius: 5.0.into(),
+                    radius: border_radius.into(),
                 },
             }
         });
 
         status_column = status_column.push(
             Container::new(bar)
-                .width(Length::Fixed(400.0))
-                .height(Length::Fixed(10.0)),
+                .width(scaled_fixed(MODAL_WIDTH_SMALL, scale))
+                .height(scaled_fixed(10.0, scale)),
         );
     }
 
@@ -133,7 +139,6 @@ pub fn render_system_update_modal<'a>(state: &SystemUpdateState) -> Element<'a, 
         .center_x(Length::Fill)
         .center_y(Length::Fill);
 
-    // Detail / Error message if failed
     let detail_text = if let UpdateStatus::Failed(msg) = &state.status {
         if msg.to_lowercase().contains("manual intervention") {
             Some(msg.clone())
@@ -151,15 +156,14 @@ pub fn render_system_update_modal<'a>(state: &SystemUpdateState) -> Element<'a, 
             Container::new(
                 Text::new(msg)
                     .font(SANSATION)
-                    .size(16)
+                    .size(scaled(BASE_FONT_MEDIUM, scale))
                     .color(COLOR_TEXT_MUTED),
             )
-            .padding(10)
+            .padding(scaled(BASE_PADDING_SMALL, scale))
             .center_x(Length::Fill),
         );
     }
 
-    // Hint at bottom
     let hint_text = match &state.status {
         UpdateStatus::Completed { restart_required } if *restart_required => {
             "Press Enter/A to Restart, or Esc/B to Postpone"
@@ -171,32 +175,31 @@ pub fn render_system_update_modal<'a>(state: &SystemUpdateState) -> Element<'a, 
 
     let hint = Text::new(hint_text)
         .font(SANSATION)
-        .size(14)
+        .size(scaled(BASE_FONT_SMALL, scale))
         .color(COLOR_TEXT_HINT);
 
     let hint_container = Container::new(hint)
-        .padding(10)
+        .padding(scaled(BASE_PADDING_SMALL, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
     modal_column = modal_column.push(hint_container);
 
-    // Modal box
+    let border_radius = scaled(10.0, scale);
     let modal_box = Container::new(modal_column)
-        .width(Length::Fixed(500.0))
-        .height(Length::Fixed(300.0))
-        .padding(20)
-        .style(|_| iced::widget::container::Style {
+        .width(scaled_fixed(MODAL_WIDTH_SYSTEM_UPDATE, scale))
+        .height(scaled_fixed(MODAL_HEIGHT_SMALL, scale))
+        .padding(scaled(BASE_PADDING_MEDIUM, scale))
+        .style(move |_| iced::widget::container::Style {
             background: Some(COLOR_PANEL.into()),
             border: iced::Border {
                 color: Color::WHITE,
                 width: 1.0,
-                radius: 10.0.into(),
+                radius: border_radius.into(),
             },
             ..Default::default()
         });
 
-    // Overlay container with semi-transparent background
     Container::new(modal_box)
         .width(Length::Fill)
         .height(Length::Fill)

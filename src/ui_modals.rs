@@ -6,18 +6,24 @@ use crate::messages::Message;
 use crate::model::Category;
 use crate::ui_theme::*;
 
-pub fn render_context_menu<'a>(selected_index: usize, category: Category) -> Element<'a, Message> {
+pub fn render_context_menu<'a>(
+    selected_index: usize,
+    category: Category,
+    scale: f32,
+) -> Element<'a, Message> {
     let menu_items: Vec<&str> = match category {
         Category::Apps => vec!["Launch", "Remove Entry", "Quit Launcher", "Close"],
         Category::Games | Category::System => vec!["Launch", "Quit Launcher", "Close"],
     };
-    let mut column = Column::new().spacing(10).padding(20);
+    let mut column = Column::new()
+        .spacing(scaled(BASE_PADDING_SMALL, scale))
+        .padding(scaled(BASE_PADDING_MEDIUM, scale));
 
     for (i, item) in menu_items.iter().enumerate() {
         let is_selected = i == selected_index;
         let text = Text::new(*item)
             .font(SANSATION)
-            .size(20)
+            .size(scaled(BASE_FONT_XLARGE, scale))
             .color(if is_selected {
                 Color::WHITE
             } else {
@@ -26,7 +32,7 @@ pub fn render_context_menu<'a>(selected_index: usize, category: Category) -> Ele
             .align_x(Horizontal::Center);
 
         let container = Container::new(text)
-            .padding(10)
+            .padding(scaled(BASE_PADDING_SMALL, scale))
             .width(Length::Fill)
             .style(move |_| {
                 if is_selected {
@@ -46,14 +52,15 @@ pub fn render_context_menu<'a>(selected_index: usize, category: Category) -> Ele
         column = column.push(container);
     }
 
+    let border_radius = scaled(10.0, scale);
     let menu_box = Container::new(column)
-        .width(Length::Fixed(300.0))
-        .style(|_| iced::widget::container::Style {
+        .width(scaled_fixed(MODAL_WIDTH_CONTEXT_MENU, scale))
+        .style(move |_| iced::widget::container::Style {
             background: Some(COLOR_MENU_BACKGROUND.into()),
             border: iced::Border {
                 color: Color::WHITE,
                 width: 1.0,
-                radius: 10.0.into(),
+                radius: border_radius.into(),
             },
             ..Default::default()
         });
@@ -70,18 +77,17 @@ pub fn render_context_menu<'a>(selected_index: usize, category: Category) -> Ele
         .into()
 }
 
-pub fn render_help_modal<'a>() -> Element<'a, Message> {
+pub fn render_help_modal<'a>(scale: f32) -> Element<'a, Message> {
     let title = Text::new("Controller Bindings")
         .font(SANSATION)
-        .size(28)
+        .size(scaled(BASE_FONT_HEADER, scale))
         .color(Color::WHITE);
 
     let title_container = Container::new(title)
-        .padding(20)
+        .padding(scaled(BASE_PADDING_MEDIUM, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
-    // Gamepad bindings
     let gamepad_bindings = vec![
         ("A / South", "Select / Confirm"),
         ("B / East", "Back / Cancel"),
@@ -93,7 +99,6 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
         ("− / Select", "Show/Hide Controls"),
     ];
 
-    // Keyboard bindings
     let keyboard_bindings = vec![
         ("Arrow Keys", "Navigate"),
         ("Enter", "Select / Confirm"),
@@ -105,68 +110,64 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
         ("F4", "Quit Launcher"),
     ];
 
-    let mut content_column = Column::new().spacing(8);
+    let mut content_column = Column::new().spacing(scaled(8.0, scale));
 
-    // Gamepad section header
     content_column = content_column.push(
         Text::new("Gamepad")
             .font(SANSATION)
-            .size(18)
+            .size(scaled(BASE_FONT_LARGE, scale))
             .color(COLOR_TEXT_SOFT),
     );
 
-    // Gamepad bindings
     for (button, action) in gamepad_bindings {
         let row = Row::new()
             .push(
                 Container::new(
                     Text::new(button)
                         .font(SANSATION)
-                        .size(16)
+                        .size(scaled(BASE_FONT_MEDIUM, scale))
                         .color(COLOR_TEXT_BRIGHT),
                 )
-                .width(Length::Fixed(200.0)),
+                .width(scaled_fixed(200.0, scale)),
             )
             .push(
                 Text::new(action)
                     .font(SANSATION)
-                    .size(16)
+                    .size(scaled(BASE_FONT_MEDIUM, scale))
                     .color(COLOR_TEXT_MUTED),
             )
-            .spacing(20);
+            .spacing(scaled(BASE_PADDING_MEDIUM, scale));
         content_column = content_column.push(row);
     }
 
-    // Spacer
-    content_column = content_column.push(Container::new(Text::new("")).height(Length::Fixed(16.0)));
+    content_column =
+        content_column.push(Container::new(Text::new("")).height(scaled_fixed(16.0, scale)));
 
-    // Keyboard section header
     content_column = content_column.push(
         Text::new("Keyboard")
             .font(SANSATION)
-            .size(18)
+            .size(scaled(BASE_FONT_LARGE, scale))
             .color(COLOR_TEXT_SOFT),
     );
 
-    // Keyboard bindings
     for (key, action) in keyboard_bindings {
         let row = Row::new()
             .push(
                 Container::new(
                     Text::new(key)
                         .font(SANSATION)
-                        .size(16)
+                        .size(scaled(BASE_FONT_MEDIUM, scale))
                         .color(COLOR_TEXT_BRIGHT),
                 )
-                .width(Length::Fixed(200.0)),
+                .width(scaled_fixed(200.0, scale)),
             )
             .push(
                 Text::new(action)
                     .font(SANSATION)
-                    .size(16)
+                    .size(scaled(BASE_FONT_MEDIUM, scale))
                     .color(COLOR_TEXT_MUTED),
             )
-            .spacing(20);
+            .spacing(scaled(BASE_PADDING_MEDIUM, scale));
         content_column = content_column.push(row);
     }
 
@@ -174,14 +175,13 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
         .width(Length::Fill)
         .height(Length::Fill);
 
-    // Hint at bottom
     let hint = Text::new("Press B or − to close")
         .font(SANSATION)
-        .size(14)
+        .size(scaled(BASE_FONT_SMALL, scale))
         .color(COLOR_TEXT_HINT);
 
     let hint_container = Container::new(hint)
-        .padding(10)
+        .padding(scaled(BASE_PADDING_SMALL, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
@@ -189,30 +189,29 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
         .push(title_container)
         .push(scrollable_content)
         .push(hint_container)
-        .spacing(10);
+        .spacing(scaled(BASE_PADDING_SMALL, scale));
 
-    // Modal box
+    let border_radius = scaled(10.0, scale);
     let modal_box = Container::new(modal_column)
         .width(Length::Fill)
         .height(Length::Fill)
-        .padding(20)
-        .style(|_| iced::widget::container::Style {
+        .padding(scaled(BASE_PADDING_MEDIUM, scale))
+        .style(move |_| iced::widget::container::Style {
             background: Some(COLOR_PANEL.into()),
             border: iced::Border {
                 color: Color::WHITE,
                 width: 1.0,
-                radius: 10.0.into(),
+                radius: border_radius.into(),
             },
             ..Default::default()
         });
 
-    // Overlay container with semi-transparent background
     Container::new(modal_box)
         .width(Length::Fill)
         .height(Length::Fill)
         .center_x(Length::Fill)
         .center_y(Length::Fill)
-        .padding(200)
+        .padding(scaled(MODAL_HELP_PADDING, scale))
         .style(|_| iced::widget::container::Style {
             background: Some(COLOR_OVERLAY_STRONG.into()),
             ..Default::default()
@@ -223,14 +222,15 @@ pub fn render_help_modal<'a>() -> Element<'a, Message> {
 pub fn render_app_not_found_modal<'a>(
     item_name: &str,
     selected_index: usize,
+    scale: f32,
 ) -> Element<'a, Message> {
     let title = Text::new("App Not Found")
         .font(SANSATION)
-        .size(26)
+        .size(scaled(26.0, scale))
         .color(Color::WHITE);
 
     let title_container = Container::new(title)
-        .padding(10)
+        .padding(scaled(BASE_PADDING_SMALL, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
@@ -239,12 +239,12 @@ pub fn render_app_not_found_modal<'a>(
         item_name
     ))
     .font(SANSATION)
-    .size(18)
+    .size(scaled(BASE_FONT_LARGE, scale))
     .color(COLOR_TEXT_BRIGHT)
     .align_x(Horizontal::Center);
 
     let message_container = Container::new(message)
-        .padding(10)
+        .padding(scaled(BASE_PADDING_SMALL, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
@@ -254,12 +254,12 @@ pub fn render_app_not_found_modal<'a>(
         options
             .iter()
             .enumerate()
-            .map(|(index, &label)| modal_button(label, index == selected_index)),
+            .map(|(index, &label)| modal_button(label, index == selected_index, scale)),
     )
-    .spacing(20);
+    .spacing(scaled(BASE_PADDING_MEDIUM, scale));
 
     let options_container = Container::new(options_row)
-        .padding(10)
+        .padding(scaled(BASE_PADDING_SMALL, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
@@ -267,17 +267,18 @@ pub fn render_app_not_found_modal<'a>(
         .push(title_container)
         .push(message_container)
         .push(options_container)
-        .spacing(10);
+        .spacing(scaled(BASE_PADDING_SMALL, scale));
 
+    let border_radius = scaled(10.0, scale);
     let modal_box = Container::new(modal_column)
-        .width(Length::Fixed(560.0))
-        .padding(20)
-        .style(|_| iced::widget::container::Style {
+        .width(scaled_fixed(MODAL_WIDTH_MEDIUM, scale))
+        .padding(scaled(BASE_PADDING_MEDIUM, scale))
+        .style(move |_| iced::widget::container::Style {
             background: Some(COLOR_PANEL.into()),
             border: iced::Border {
                 color: Color::WHITE,
                 width: 1.0,
-                radius: 10.0.into(),
+                radius: border_radius.into(),
             },
             ..Default::default()
         });
@@ -294,10 +295,10 @@ pub fn render_app_not_found_modal<'a>(
         .into()
 }
 
-fn modal_button<'a>(label: &'a str, is_selected: bool) -> Element<'a, Message> {
+fn modal_button<'a>(label: &'a str, is_selected: bool, scale: f32) -> Element<'a, Message> {
     let text = Text::new(label)
         .font(SANSATION)
-        .size(18)
+        .size(scaled(BASE_FONT_LARGE, scale))
         .color(if is_selected {
             Color::WHITE
         } else {
@@ -305,9 +306,10 @@ fn modal_button<'a>(label: &'a str, is_selected: bool) -> Element<'a, Message> {
         })
         .align_x(Horizontal::Center);
 
+    let border_radius = scaled(8.0, scale);
     Container::new(text)
-        .padding(12)
-        .width(Length::Fixed(140.0))
+        .padding(scaled(12.0, scale))
+        .width(scaled_fixed(140.0, scale))
         .center_x(Length::Fill)
         .style(move |_| {
             if is_selected {
@@ -317,7 +319,7 @@ fn modal_button<'a>(label: &'a str, is_selected: bool) -> Element<'a, Message> {
                     border: iced::Border {
                         color: Color::WHITE,
                         width: 1.0,
-                        radius: 8.0.into(),
+                        radius: border_radius.into(),
                     },
                     ..Default::default()
                 }
@@ -328,7 +330,7 @@ fn modal_button<'a>(label: &'a str, is_selected: bool) -> Element<'a, Message> {
                     border: iced::Border {
                         color: COLOR_TEXT_MUTED,
                         width: 1.0,
-                        radius: 8.0.into(),
+                        radius: border_radius.into(),
                     },
                     ..Default::default()
                 }

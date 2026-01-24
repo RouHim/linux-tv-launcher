@@ -5,37 +5,36 @@ use crate::messages::Message;
 use crate::system_info::GamingSystemInfo;
 use crate::ui_theme::*;
 
-pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Element<'a, Message> {
+pub fn render_system_info_modal<'a>(
+    info: &'a Option<GamingSystemInfo>,
+    scale: f32,
+) -> Element<'a, Message> {
     let title = Text::new("System Information")
         .font(SANSATION)
-        .size(36)
+        .size(scaled(36.0, scale))
         .color(Color::WHITE);
 
     let title_container = Container::new(title)
         .padding(Padding {
-            top: 20.0,
-            right: 20.0,
-            bottom: 10.0,
-            left: 20.0,
+            top: scaled(BASE_PADDING_MEDIUM, scale),
+            right: scaled(BASE_PADDING_MEDIUM, scale),
+            bottom: scaled(BASE_PADDING_SMALL, scale),
+            left: scaled(BASE_PADDING_MEDIUM, scale),
         })
         .width(Length::Fill)
         .center_x(Length::Fill);
 
     let content: Element<'a, Message> = if let Some(info) = info {
-        // === LEFT COLUMN ===
-        let left_column = build_left_column(info);
+        let left_column = build_left_column(info, scale);
+        let right_column = build_right_column(info, scale);
 
-        // === RIGHT COLUMN ===
-        let right_column = build_right_column(info);
-
-        // Two-column layout
         let columns = Row::new()
             .push(
                 Container::new(left_column)
                     .width(Length::FillPortion(1))
                     .padding(Padding {
                         top: 0.0,
-                        right: 20.0,
+                        right: scaled(BASE_PADDING_MEDIUM, scale),
                         bottom: 0.0,
                         left: 0.0,
                     }),
@@ -47,10 +46,10 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
                         top: 0.0,
                         right: 0.0,
                         bottom: 0.0,
-                        left: 20.0,
+                        left: scaled(BASE_PADDING_MEDIUM, scale),
                     }),
             )
-            .spacing(50);
+            .spacing(scaled(50.0, scale));
 
         Scrollable::new(columns)
             .width(Length::Fill)
@@ -60,7 +59,7 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
         Container::new(
             Text::new("Loading System Information...")
                 .font(SANSATION)
-                .size(20)
+                .size(scaled(BASE_FONT_XLARGE, scale))
                 .color(COLOR_TEXT_DIM),
         )
         .width(Length::Fill)
@@ -70,14 +69,13 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
         .into()
     };
 
-    // Hint at bottom
     let hint = Text::new("Press B or − to close")
         .font(SANSATION)
-        .size(16)
+        .size(scaled(BASE_FONT_MEDIUM, scale))
         .color(COLOR_TEXT_HINT);
 
     let hint_container = Container::new(hint)
-        .padding(10)
+        .padding(scaled(BASE_PADDING_SMALL, scale))
         .width(Length::Fill)
         .center_x(Length::Fill);
 
@@ -85,30 +83,29 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
         .push(title_container)
         .push(content)
         .push(hint_container)
-        .spacing(10);
+        .spacing(scaled(BASE_PADDING_SMALL, scale));
 
-    // Modal box
+    let border_radius = scaled(12.0, scale);
     let modal_box = Container::new(modal_column)
         .width(Length::Fill)
         .height(Length::Fill)
-        .padding(25)
-        .style(|_| iced::widget::container::Style {
+        .padding(scaled(25.0, scale))
+        .style(move |_| iced::widget::container::Style {
             background: Some(COLOR_PANEL.into()),
             border: iced::Border {
                 color: Color::WHITE,
                 width: 1.0,
-                radius: 12.0.into(),
+                radius: border_radius.into(),
             },
             ..Default::default()
         });
 
-    // Overlay container
     Container::new(modal_box)
         .width(Length::Fill)
         .height(Length::Fill)
         .center_x(Length::Fill)
         .center_y(Length::Fill)
-        .padding(100)
+        .padding(scaled(MODAL_OVERLAY_PADDING, scale))
         .style(|_| iced::widget::container::Style {
             background: Some(COLOR_OVERLAY_STRONG.into()),
             ..Default::default()
@@ -116,45 +113,46 @@ pub fn render_system_info_modal<'a>(info: &'a Option<GamingSystemInfo>) -> Eleme
         .into()
 }
 
-fn build_left_column(info: &GamingSystemInfo) -> Element<'_, Message> {
-    let mut column = Column::new().spacing(8);
+fn build_left_column(info: &GamingSystemInfo, scale: f32) -> Element<'_, Message> {
+    let mut column = Column::new().spacing(scaled(8.0, scale));
 
-    // === SYSTEM SECTION ===
-    column = column.push(section_header_accent("System"));
-    column = column.push(info_row("RhincoTV", env!("CARGO_PKG_VERSION").to_string()));
-    column = column.push(info_row("OS", info.os_name.clone()));
-    column = column.push(info_row("Kernel", info.kernel_version.clone()));
-    column = column.push(info_row("Session", info.xdg_session_type.clone()));
+    column = column.push(section_header_accent("System", scale));
+    column = column.push(info_row(
+        "RhincoTV",
+        env!("CARGO_PKG_VERSION").to_string(),
+        scale,
+    ));
+    column = column.push(info_row("OS", info.os_name.clone(), scale));
+    column = column.push(info_row("Kernel", info.kernel_version.clone(), scale));
+    column = column.push(info_row("Session", info.xdg_session_type.clone(), scale));
 
-    column = column.push(section_spacer());
+    column = column.push(section_spacer(scale));
 
-    // === HARDWARE SECTION ===
-    column = column.push(section_header_accent("Hardware"));
-    column = column.push(info_row("CPU", info.cpu_model.clone()));
+    column = column.push(section_header_accent("Hardware", scale));
+    column = column.push(info_row("CPU", info.cpu_model.clone(), scale));
 
-    // Memory with progress bar
     let mem_label = format!("{} / {}", info.memory_used, info.memory_total);
     let mem_percent = parse_memory_percent(&info.memory_used, &info.memory_total);
     column = column.push(info_row_with_bar(
         "Memory".to_string(),
         mem_label,
         mem_percent,
+        scale,
     ));
 
-    column = column.push(info_row("GPU", info.gpu_info.clone()));
-    column = column.push(info_row("Driver", info.gpu_driver.clone()));
-    column = column.push(info_row("Vulkan", info.vulkan_info.clone()));
+    column = column.push(info_row("GPU", info.gpu_info.clone(), scale));
+    column = column.push(info_row("Driver", info.gpu_driver.clone(), scale));
+    column = column.push(info_row("Vulkan", info.vulkan_info.clone(), scale));
 
-    column = column.push(section_spacer());
+    column = column.push(section_spacer(scale));
 
-    // === STORAGE SECTION ===
-    column = column.push(section_header_accent("Storage"));
+    column = column.push(section_header_accent("Storage", scale));
 
     if info.disks.is_empty() {
         column = column.push(
             Text::new("No disks found")
                 .font(SANSATION)
-                .size(17)
+                .size(scaled(17.0, scale))
                 .color(COLOR_TEXT_DIM),
         );
     } else {
@@ -165,21 +163,26 @@ fn build_left_column(info: &GamingSystemInfo) -> Element<'_, Message> {
                 disk_label,
                 disk.usage_percent.clone(),
                 disk_percent,
+                scale,
             ));
         }
     }
 
-    // ZRAM
     if info.zram.enabled {
         let zram_label = format!("ZRAM: {} ({})", info.zram.size, info.zram.algorithm);
         let zram_value = format!("{} used ({})", info.zram.used, info.zram.usage_percent);
         let zram_percent = parse_percent(&info.zram.usage_percent);
-        column = column.push(info_row_with_bar(zram_label, zram_value, zram_percent));
+        column = column.push(info_row_with_bar(
+            zram_label,
+            zram_value,
+            zram_percent,
+            scale,
+        ));
     } else {
         column = column.push(
             Text::new("ZRAM: Not Configured")
                 .font(SANSATION)
-                .size(17)
+                .size(scaled(17.0, scale))
                 .color(COLOR_TEXT_DIM),
         );
     }
@@ -187,13 +190,11 @@ fn build_left_column(info: &GamingSystemInfo) -> Element<'_, Message> {
     column.into()
 }
 
-fn build_right_column(info: &GamingSystemInfo) -> Element<'_, Message> {
-    let mut column = Column::new().spacing(8);
+fn build_right_column(info: &GamingSystemInfo, scale: f32) -> Element<'_, Message> {
+    let mut column = Column::new().spacing(scaled(8.0, scale));
 
-    // === GAMING TOOLS SECTION ===
-    column = column.push(section_header_accent("Gaming Tools"));
+    column = column.push(section_header_accent("Gaming Tools", scale));
 
-    // GameMode with status indicator
     let (gamemode_text, gamemode_ok) = if info.gamemode.available {
         if info.gamemode.active {
             ("Installed (Active)", true)
@@ -207,85 +208,83 @@ fn build_right_column(info: &GamingSystemInfo) -> Element<'_, Message> {
         "GameMode".to_string(),
         gamemode_text.to_string(),
         gamemode_ok,
+        scale,
     ));
 
-    // Wine versions
     if info.wine_versions.is_empty() {
         column = column.push(info_row_colored(
             "Wine",
             "Not Installed".to_string(),
             COLOR_TEXT_DIM,
+            scale,
         ));
     } else {
         for (name, version) in &info.wine_versions {
-            column = column.push(info_row(name, version.clone()));
+            column = column.push(info_row(name, version.clone(), scale));
         }
     }
 
-    // Proton versions
     if !info.proton_versions.is_empty() {
-        column = column.push(Space::new().height(Length::Fixed(5.0)));
+        column = column.push(Space::new().height(scaled_fixed(5.0, scale)));
         column = column.push(
             Text::new("Proton Versions")
                 .font(SANSATION)
-                .size(15)
+                .size(scaled(15.0, scale))
                 .color(COLOR_TEXT_SOFT),
         );
         for (name, version) in &info.proton_versions {
             column = column.push(
                 Text::new(format!("  {} — {}", name, version))
                     .font(SANSATION)
-                    .size(16)
+                    .size(scaled(BASE_FONT_MEDIUM, scale))
                     .color(COLOR_TEXT_BRIGHT),
             );
         }
     }
 
-    column = column.push(section_spacer());
+    column = column.push(section_spacer(scale));
 
-    // === KERNEL TWEAKS SECTION ===
-    column = column.push(section_header_accent("Kernel Tweaks"));
+    column = column.push(section_header_accent("Kernel Tweaks", scale));
 
-    // CPU Governor
     let governor_ok = info.cpu_governor == "performance";
     column = column.push(info_row_with_status(
         "CPU Governor".to_string(),
         info.cpu_governor.clone(),
         governor_ok,
+        scale,
     ));
 
-    // vm.max_map_count
     let map_count_display = format_large_number(info.kernel_tweaks.vm_max_map_count);
     column = column.push(info_row_with_status(
         "max_map_count".to_string(),
         map_count_display,
         info.kernel_tweaks.vm_max_map_count_ok,
+        scale,
     ));
 
-    // Swappiness
     let swappiness_str = info.kernel_tweaks.swappiness.to_string();
     column = column.push(info_row_with_status(
         "Swappiness".to_string(),
         swappiness_str,
         info.kernel_tweaks.swappiness_ok,
+        scale,
     ));
 
-    // Clocksource
     column = column.push(info_row_with_status(
         "Clocksource".to_string(),
         info.kernel_tweaks.clocksource.clone(),
         info.kernel_tweaks.clocksource_ok,
+        scale,
     ));
 
-    column = column.push(section_spacer());
+    column = column.push(section_spacer(scale));
 
-    // === CONTROLLERS SECTION ===
-    column = column.push(section_header_accent("Controllers"));
+    column = column.push(section_header_accent("Controllers", scale));
     if info.controllers.is_empty() {
         column = column.push(
             Text::new("No controllers detected")
                 .font(SANSATION)
-                .size(17)
+                .size(scaled(17.0, scale))
                 .color(COLOR_TEXT_DIM),
         );
     } else {
@@ -293,7 +292,7 @@ fn build_right_column(info: &GamingSystemInfo) -> Element<'_, Message> {
             column = column.push(
                 Text::new(format!("{}  ({})", controller.name, controller.device_path))
                     .font(SANSATION)
-                    .size(17)
+                    .size(scaled(17.0, scale))
                     .color(COLOR_TEXT_BRIGHT),
             );
         }
@@ -302,59 +301,67 @@ fn build_right_column(info: &GamingSystemInfo) -> Element<'_, Message> {
     column.into()
 }
 
-// === HELPER FUNCTIONS ===
-
-fn section_header_accent(title: &str) -> Element<'_, Message> {
+fn section_header_accent(title: &str, scale: f32) -> Element<'_, Message> {
     Text::new(title)
         .font(SANSATION)
-        .size(20)
+        .size(scaled(BASE_FONT_XLARGE, scale))
         .color(COLOR_ACCENT)
         .into()
 }
 
-fn section_spacer() -> Element<'static, Message> {
-    Space::new().height(Length::Fixed(15.0)).into()
+fn section_spacer(scale: f32) -> Element<'static, Message> {
+    Space::new().height(scaled_fixed(15.0, scale)).into()
 }
 
-fn info_row(label: &str, value: String) -> Element<'_, Message> {
+fn info_row(label: &str, value: String, scale: f32) -> Element<'_, Message> {
     Row::new()
         .push(
             Container::new(
                 Text::new(label)
                     .font(SANSATION)
-                    .size(17)
+                    .size(scaled(17.0, scale))
                     .color(COLOR_TEXT_SOFT),
             )
-            .width(Length::Fixed(130.0)),
+            .width(scaled_fixed(130.0, scale)),
         )
         .push(
             Text::new(value)
                 .font(SANSATION)
-                .size(17)
+                .size(scaled(17.0, scale))
                 .color(COLOR_TEXT_BRIGHT),
         )
-        .spacing(10)
+        .spacing(scaled(BASE_PADDING_SMALL, scale))
         .into()
 }
 
-fn info_row_colored(label: &str, value: String, color: Color) -> Element<'_, Message> {
+fn info_row_colored(label: &str, value: String, color: Color, scale: f32) -> Element<'_, Message> {
     Row::new()
         .push(
             Container::new(
                 Text::new(label)
                     .font(SANSATION)
-                    .size(17)
+                    .size(scaled(17.0, scale))
                     .color(COLOR_TEXT_SOFT),
             )
-            .width(Length::Fixed(100.0)),
+            .width(scaled_fixed(100.0, scale)),
         )
-        .push(Text::new(value).font(SANSATION).size(17).color(color))
-        .spacing(10)
+        .push(
+            Text::new(value)
+                .font(SANSATION)
+                .size(scaled(17.0, scale))
+                .color(color),
+        )
+        .spacing(scaled(BASE_PADDING_SMALL, scale))
         .into()
 }
 
-fn info_row_with_status(label: String, value: String, ok: bool) -> Element<'static, Message> {
-    let indicator = status_indicator(ok);
+fn info_row_with_status(
+    label: String,
+    value: String,
+    ok: bool,
+    scale: f32,
+) -> Element<'static, Message> {
+    let indicator = status_indicator(ok, scale);
     let color = if ok { COLOR_SUCCESS } else { COLOR_WARNING };
 
     Row::new()
@@ -363,17 +370,22 @@ fn info_row_with_status(label: String, value: String, ok: bool) -> Element<'stat
             Container::new(
                 Text::new(label)
                     .font(SANSATION)
-                    .size(17)
+                    .size(scaled(17.0, scale))
                     .color(COLOR_TEXT_SOFT),
             )
-            .width(Length::Fixed(200.0)),
+            .width(scaled_fixed(200.0, scale)),
         )
-        .push(Text::new(value).font(SANSATION).size(17).color(color))
-        .spacing(8)
+        .push(
+            Text::new(value)
+                .font(SANSATION)
+                .size(scaled(17.0, scale))
+                .color(color),
+        )
+        .spacing(scaled(8.0, scale))
         .into()
 }
 
-fn status_indicator(ok: bool) -> Element<'static, Message> {
+fn status_indicator(ok: bool, scale: f32) -> Element<'static, Message> {
     let (symbol, color) = if ok {
         ("●", COLOR_SUCCESS)
     } else {
@@ -382,18 +394,24 @@ fn status_indicator(ok: bool) -> Element<'static, Message> {
 
     Text::new(symbol)
         .font(SANSATION)
-        .size(16)
+        .size(scaled(BASE_FONT_MEDIUM, scale))
         .color(color)
         .into()
 }
 
-fn info_row_with_bar(label: String, value: String, percent: f32) -> Element<'static, Message> {
+fn info_row_with_bar(
+    label: String,
+    value: String,
+    percent: f32,
+    scale: f32,
+) -> Element<'static, Message> {
     let bar_color = if percent > 90.0 {
         COLOR_WARNING
     } else {
         COLOR_ACCENT
     };
 
+    let border_radius = scaled(3.0, scale);
     let bar = ProgressBar::new(0.0..=100.0, percent).style(move |_theme| {
         iced::widget::progress_bar::Style {
             background: COLOR_ABYSS_DARK.into(),
@@ -401,7 +419,7 @@ fn info_row_with_bar(label: String, value: String, percent: f32) -> Element<'sta
             border: iced::Border {
                 color: Color::TRANSPARENT,
                 width: 0.0,
-                radius: 3.0.into(),
+                radius: border_radius.into(),
             },
         }
     });
@@ -412,23 +430,23 @@ fn info_row_with_bar(label: String, value: String, percent: f32) -> Element<'sta
                 .push(
                     Text::new(label)
                         .font(SANSATION)
-                        .size(17)
+                        .size(scaled(17.0, scale))
                         .color(COLOR_TEXT_SOFT),
                 )
                 .push(Space::new().width(Length::Fill))
                 .push(
                     Text::new(value)
                         .font(SANSATION)
-                        .size(17)
+                        .size(scaled(17.0, scale))
                         .color(COLOR_TEXT_BRIGHT),
                 ),
         )
         .push(
             Container::new(bar)
                 .width(Length::Fill)
-                .height(Length::Fixed(6.0)),
+                .height(scaled_fixed(6.0, scale)),
         )
-        .spacing(3)
+        .spacing(scaled(3.0, scale))
         .into()
 }
 
@@ -449,7 +467,6 @@ fn parse_percent(s: &str) -> f32 {
 }
 
 fn parse_memory_percent(used: &str, total: &str) -> f32 {
-    // Parse memory strings like "8.2 GB" into bytes for percentage calculation
     let used_bytes = parse_memory_to_bytes(used);
     let total_bytes = parse_memory_to_bytes(total);
 

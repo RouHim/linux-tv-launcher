@@ -64,6 +64,49 @@ pub const REFERENCE_WINDOW_HEIGHT: f32 = 1080.0;
 pub const MIN_UI_SCALE: f32 = 0.5;
 pub const MAX_UI_SCALE: f32 = 3.0;
 
+// --- Base Font Sizes (at 1080p reference) ---
+pub const BASE_FONT_TINY: f32 = 12.0;
+pub const BASE_FONT_SMALL: f32 = 14.0;
+pub const BASE_FONT_MEDIUM: f32 = 16.0;
+
+pub const BASE_FONT_LARGE: f32 = 18.0;
+pub const BASE_FONT_XLARGE: f32 = 20.0;
+
+pub const BASE_FONT_TITLE: f32 = 24.0;
+
+pub const BASE_FONT_HEADER: f32 = 28.0;
+pub const BASE_FONT_DISPLAY: f32 = 32.0;
+
+// --- Base Padding/Spacing (at 1080p reference) ---
+pub const BASE_PADDING_TINY: f32 = 6.0;
+pub const BASE_PADDING_SMALL: f32 = 10.0;
+
+pub const BASE_PADDING_MEDIUM: f32 = 20.0;
+
+pub const BASE_PADDING_LARGE: f32 = 40.0;
+pub const CATEGORY_ROW_SPACING: f32 = 40.0;
+
+// --- Modal Dimensions ---
+pub const MODAL_WIDTH_CONTEXT_MENU: f32 = 300.0;
+pub const MODAL_WIDTH_SMALL: f32 = 400.0;
+pub const MODAL_WIDTH_MEDIUM: f32 = 560.0;
+pub const MODAL_WIDTH_SYSTEM_UPDATE: f32 = 500.0;
+pub const MODAL_WIDTH_LARGE: f32 = 600.0;
+pub const MODAL_HEIGHT_SMALL: f32 = 300.0;
+pub const MODAL_HEIGHT_MEDIUM: f32 = 360.0;
+pub const MODAL_OVERLAY_PADDING: f32 = 100.0;
+pub const MODAL_HELP_PADDING: f32 = 200.0;
+
+#[inline]
+pub fn scaled(base: f32, scale: f32) -> f32 {
+    base * scale
+}
+
+#[inline]
+pub fn scaled_fixed(base: f32, scale: f32) -> iced::Length {
+    iced::Length::Fixed(base * scale)
+}
+
 // Timing Constants (in seconds)
 pub const BATTERY_CHECK_INTERVAL_SECS: u64 = 60;
 pub const RESTART_DELAY_SECS: u64 = 2;

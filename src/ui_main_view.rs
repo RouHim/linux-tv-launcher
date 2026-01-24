@@ -1,5 +1,5 @@
 use iced::alignment::Horizontal;
-use iced::widget::{scrollable, Column, Container, Row, Scrollable, Text};
+use iced::widget::{scrollable, text, Column, Container, Row, Scrollable, Text};
 use iced::{Background, Border, Color, Element, Length, Shadow};
 use std::path::PathBuf;
 
@@ -64,13 +64,15 @@ pub fn render_section_row<'a>(
         for (i, item) in list.items.iter().enumerate() {
             let is_selected = is_active && (i == selected_index);
 
-            row = row.push(render_item(
-                item,
-                is_selected,
+            let dims = ItemDimensions {
                 image_width,
                 image_height,
                 item_width,
-                item_height,
+            };
+            row = row.push(render_item(
+                item,
+                is_selected,
+                &dims,
                 default_icon_handle.clone(),
                 scale,
             ));
@@ -128,16 +130,24 @@ pub fn render_section_row<'a>(
         .into()
 }
 
+/// Item render dimensions bundled to reduce argument count.
+pub struct ItemDimensions {
+    pub image_width: f32,
+    pub image_height: f32,
+    pub item_width: f32,
+}
+
+#[allow(clippy::too_many_arguments)]
 fn render_item<'a>(
     item: &LauncherItem,
     is_selected: bool,
-    image_width: f32,
-    image_height: f32,
-    item_width: f32,
-    _item_height: f32,
+    dims: &ItemDimensions,
     default_icon_handle: Option<iced::widget::svg::Handle>,
     scale: f32,
 ) -> Element<'a, Message> {
+    let image_width = dims.image_width;
+    let image_height = dims.image_height;
+    let item_width = dims.item_width;
     let icon_widget: Element<'a, Message> = if let Some(sys_icon) = &item.system_icon {
         // Use 60% of the container width for the icon size to ensure it fits comfortably
         let icon_size = image_width * 0.6;
@@ -174,6 +184,7 @@ fn render_item<'a>(
     let label = text
         .font(SANSATION)
         .width(Length::Fixed(item_width)) // Use full item width for text centering
+        .wrapping(text::Wrapping::Word)
         .align_x(Horizontal::Center)
         .color(Color::WHITE)
         .size(14.0 * scale);

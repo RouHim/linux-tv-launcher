@@ -71,7 +71,7 @@ This is a Rust application built with Iced for the UI. Key paths:
 - Maintain consistent code style across the project to improve readability and reduce friction in reviews.
 - Always use RustTLS for any TLS connections, no OpenSSL.
 - Use conventional commit messages like "feat: add new feature", "fix: correct a bug", "docs: update documentation", etc.
-- Challenge every dead_code warning and remove unused code. If an dead_code is ok, add a comment explaining why.
+- Challenge every dead_code warning and remove unused code. Respect YAGNI.
 
 ## Testing Strategy
 
@@ -84,4 +84,3 @@ This is a Rust application built with Iced for the UI. Key paths:
 
 - Write tests in a BDD style, focusing on the expected behavior and outcomes.
 - Structure tests to clearly state scenarios, actions, and expected results to improve communication and documentation.
-

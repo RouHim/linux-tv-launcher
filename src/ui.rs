@@ -5,14 +5,14 @@ use crate::ui_app_update_modal::{handle_app_update_navigation, render_app_update
 use crate::ui_modals::{render_app_not_found_modal, render_context_menu, render_help_modal};
 use crate::ui_system_update_modal::render_system_update_modal;
 use crate::ui_theme::{
-    BATTERY_CHECK_INTERVAL_SECS, GAME_POSTER_HEIGHT, GAME_POSTER_WIDTH, ITEM_SPACING,
-    MAIN_CONTENT_VERTICAL_PADDING, MAX_UI_SCALE, MIN_UI_SCALE, REFERENCE_WINDOW_HEIGHT,
-    RESTART_DELAY_SECS,
+    BASE_FONT_TITLE, BASE_PADDING_SMALL, BATTERY_CHECK_INTERVAL_SECS, CATEGORY_ROW_SPACING,
+    GAME_POSTER_HEIGHT, GAME_POSTER_WIDTH, ITEM_SPACING, MAIN_CONTENT_VERTICAL_PADDING,
+    MAX_UI_SCALE, MIN_UI_SCALE, REFERENCE_WINDOW_HEIGHT, RESTART_DELAY_SECS,
 };
 use crate::updater::{apply_update, check_update_available, ReleaseInfo};
 use iced::window;
 use iced::{
-    widget::{Column, Container, Stack},
+    widget::{Column, Container, Scrollable, Stack},
     Color, Element, Event, Length, Subscription, Task,
 };
 use tracing::{error, info};
@@ -92,6 +92,8 @@ pub struct Launcher {
     system_battery: Option<gilrs::PowerInfo>,
     last_battery_check: std::time::Instant,
     pending_update: Option<ReleaseInfo>,
+    /// Main vertical scrollable Id for programmatic scroll control
+    main_scroll_id: iced::widget::Id,
 }
 
 impl Launcher {
@@ -155,6 +157,7 @@ impl Launcher {
             system_battery: None,
             last_battery_check: std::time::Instant::now(),
             pending_update: None,
+            main_scroll_id: iced::widget::Id::unique(),
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
@@ -727,8 +730,9 @@ impl Launcher {
 
     fn update_app_picker_cols(&mut self) {
         let width = self.window_width;
+        let scale = self.ui_scale;
         if let Some(state) = self.app_picker_state_mut() {
-            state.update_cols(width);
+            state.update_cols(width, scale);
         }
     }
 
@@ -754,7 +758,49 @@ impl Launcher {
             column = column.push(status);
         }
 
-        let main_content = Container::new(column)
+        let scrollable_content = Scrollable::new(column)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .id(self.main_scroll_id.clone())
+            .direction(iced::widget::scrollable::Direction::Vertical(
+                iced::widget::scrollable::Scrollbar::new()
+                    .width(4.0 * self.ui_scale)
+                    .scroller_width(3.0 * self.ui_scale),
+            ))
+            .style(|_theme, _status| {
+                use crate::ui_theme::{COLOR_PANEL, COLOR_TEXT_MUTED};
+                let scroller = iced::widget::scrollable::Scroller {
+                    background: iced::Background::Color(COLOR_TEXT_MUTED),
+                    border: iced::Border {
+                        radius: 2.0.into(),
+                        width: 0.0,
+                        color: Color::TRANSPARENT,
+                    },
+                };
+                let rail = iced::widget::scrollable::Rail {
+                    background: Some(iced::Background::Color(COLOR_PANEL)),
+                    border: iced::Border {
+                        radius: 2.0.into(),
+                        width: 0.0,
+                        color: Color::TRANSPARENT,
+                    },
+                    scroller,
+                };
+                iced::widget::scrollable::Style {
+                    container: iced::widget::container::Style::default(),
+                    vertical_rail: rail,
+                    horizontal_rail: rail,
+                    gap: None,
+                    auto_scroll: iced::widget::scrollable::AutoScroll {
+                        background: iced::Background::Color(COLOR_PANEL),
+                        border: iced::Border::default(),
+                        shadow: iced::Shadow::default(),
+                        icon: Color::WHITE,
+                    },
+                }
+            });
+
+        let main_content = Container::new(scrollable_content)
             .width(Length::Fill)
             .height(Length::Fill)
             .center_x(Length::Fill)
@@ -779,7 +825,7 @@ impl Launcher {
             if let Some((icon, _color)) = get_battery_visuals(battery_info, self.ui_scale) {
                 status_bar_row = status_bar_row
                     .push(icon)
-                    .push(iced::widget::Space::new().width(16.0 * self.ui_scale)); // Spacing between battery and clock
+                    .push(iced::widget::Space::new().width(16.0 * self.ui_scale));
             }
         }
 
@@ -818,18 +864,27 @@ impl Launcher {
     }
 
     fn render_modal_layer(&self) -> Option<Element<'_, Message>> {
+        let scale = self.ui_scale;
         match &self.modal {
-            ModalState::ContextMenu { index } => Some(render_context_menu(*index, self.category)),
-            ModalState::AppPicker(state) => Some(render_app_picker(state, &self.available_apps)),
-            ModalState::SystemUpdate(state) => Some(render_system_update_modal(state)),
-            ModalState::AppUpdate(state) => Some(render_app_update_modal(state)),
-            ModalState::SystemInfo(info) => Some(render_system_info_modal(info)),
+            ModalState::ContextMenu { index } => {
+                Some(render_context_menu(*index, self.category, scale))
+            }
+            ModalState::AppPicker(state) => {
+                Some(render_app_picker(state, &self.available_apps, scale))
+            }
+            ModalState::SystemUpdate(state) => Some(render_system_update_modal(state, scale)),
+            ModalState::AppUpdate(state) => Some(render_app_update_modal(state, scale)),
+            ModalState::SystemInfo(info) => Some(render_system_info_modal(info, scale)),
             ModalState::AppNotFound {
                 item_name,
                 selected_index,
                 ..
-            } => Some(render_app_not_found_modal(item_name, *selected_index)),
-            ModalState::Help => Some(render_help_modal()),
+            } => Some(render_app_not_found_modal(
+                item_name,
+                *selected_index,
+                scale,
+            )),
+            ModalState::Help => Some(render_help_modal(scale)),
             ModalState::None => None,
         }
     }
@@ -1024,16 +1079,6 @@ impl Launcher {
         let item_width_with_spacing = item_width + (ITEM_SPACING * self.ui_scale);
 
         let target_x = list.selected_index as f32 * item_width_with_spacing;
-        // Center the item roughly or just scroll to it?
-        // Let's just scroll to it for now.
-        // Iced scrollable offset is absolute.
-
-        // We probably want to center the selected item if possible, but
-        // simple "ensure visible" logic is easier.
-        // Assuming "ensure visible" is what we want.
-        // But `scroll_to` takes an absolute position.
-
-        // Let's try to center it: target_x - (window_width / 2) + (item_width / 2)
         let center_offset = target_x - (self.window_width / 2.0) + (item_width / 2.0);
 
         operation::scroll_to(
@@ -1041,6 +1086,44 @@ impl Launcher {
             iced::widget::scrollable::AbsoluteOffset {
                 x: center_offset.max(0.0),
                 y: 0.0,
+            },
+        )
+        .chain(self.scroll_main_to_category())
+    }
+
+    fn scroll_main_to_category(&self) -> Task<Message> {
+        let category_index = match self.category {
+            Category::Games => 0,
+            Category::Apps => 1,
+            Category::System => 2,
+        };
+
+        let title_height = BASE_FONT_TITLE * self.ui_scale;
+        let padding = BASE_PADDING_SMALL * self.ui_scale;
+        let spacing = CATEGORY_ROW_SPACING * self.ui_scale;
+
+        let mut target_y = 0.0;
+
+        for i in 0..category_index {
+            let cat = match i {
+                0 => Category::Games,
+                1 => Category::Apps,
+                _ => Category::System,
+            };
+
+            let (_item_width, item_height, _image_width, _image_height) =
+                get_category_dimensions(cat, self.ui_scale);
+
+            let row_height = item_height;
+
+            target_y += title_height + padding + row_height + padding + spacing;
+        }
+
+        operation::scroll_to(
+            self.main_scroll_id.clone(),
+            iced::widget::scrollable::AbsoluteOffset {
+                x: 0.0,
+                y: target_y.max(0.0),
             },
         )
     }
@@ -1193,8 +1276,9 @@ impl Launcher {
     }
 
     fn snap_to_picker_selection(&self) -> Task<Message> {
+        let scale = self.ui_scale;
         self.app_picker_state()
-            .map(|state| state.snap_to_selection())
+            .map(|state| state.snap_to_selection(scale))
             .unwrap_or(Task::none())
     }
 
@@ -1418,10 +1502,7 @@ impl Launcher {
     }
 
     fn save_apps_config(&self, action_desc: &str, action_gerund: &str, item_name: &str) {
-        let mut config = match load_config() {
-            Ok(cfg) => cfg,
-            Err(_) => AppConfig::default(),
-        };
+        let mut config = load_config().unwrap_or_default();
 
         config.apps = self
             .apps
@@ -1436,7 +1517,10 @@ impl Launcher {
 
         match save_config(&config) {
             Ok(_) => info!("{} '{}' and saved config.", action_desc, item_name),
-            Err(e) => error!("Error saving config after {} '{}': {}", action_gerund, item_name, e),
+            Err(e) => error!(
+                "Error saving config after {} '{}': {}",
+                action_gerund, item_name, e
+            ),
         }
     }
 
