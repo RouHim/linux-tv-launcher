@@ -38,6 +38,7 @@ use crate::messages::Message;
 use crate::model::{AppEntry, Category, LauncherAction, LauncherItem};
 use crate::osk::OskManager;
 use crate::searxng::SearxngClient;
+use crate::sleep_inhibit::SleepInhibitor;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{load_config, save_config, AppConfig};
 use crate::sys_utils::restart_process;
@@ -82,6 +83,7 @@ pub struct Launcher {
     // Game running state - disables input subscriptions
     game_running: bool,
     osk_manager: OskManager,
+    sleep_inhibitor: SleepInhibitor,
     current_exe: Option<PathBuf>,
     api_key: Option<String>,
     current_time: DateTime<Local>,
@@ -148,6 +150,7 @@ impl Launcher {
             recreating_window: false,
             game_running: false,
             osk_manager: OskManager::new(),
+            sleep_inhibitor: SleepInhibitor::new(),
             current_exe,
             api_key: env_key,
             current_time: Local::now(),
@@ -439,6 +442,9 @@ impl Launcher {
             self.recreating_window = false;
             return Task::none();
         }
+
+        // Acquire sleep inhibition now that window is open
+        self.sleep_inhibitor.acquire();
 
         if cfg!(debug_assertions) {
             info!("Debug mode detected: Skipping app update check");
@@ -992,6 +998,7 @@ impl Launcher {
 
     fn exit_app(&mut self) -> ! {
         self.osk_manager.restore();
+        self.sleep_inhibitor.release();
         std::process::exit(0);
     }
 
