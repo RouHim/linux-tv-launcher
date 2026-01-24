@@ -17,6 +17,7 @@ uuid = { version = "1.19", features = ["v4", "serde"] }
 rayon = "1.11.0"
 ureq = { version = "3.1", features = ["json", "rustls"] }
 urlencoding = "2.1"
+zbus = { version = "5.13", features = ["tokio"] }
 image = { version = "0.25", features = ["png", "jpeg", "webp"] }
 procfs = "0.18"
 iced_fonts = { version = "0.3", features = ["fontawesome"] }
