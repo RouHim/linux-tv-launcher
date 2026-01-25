@@ -25,6 +25,8 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::assets::get_default_icon;
+use crate::auth_dialog::render_auth_dialog;
+use crate::auth_flow::{AuthFlow, AuthFlowState};
 use crate::category_list::CategoryList;
 use crate::desktop_apps::{scan_desktop_apps, DesktopApp};
 use crate::focus_manager::{monitor_app_process, MonitorTarget};
@@ -41,6 +43,7 @@ use crate::searxng::SearxngClient;
 use crate::sleep_inhibit::SleepInhibitor;
 use crate::steamgriddb::SteamGridDbClient;
 use crate::storage::{load_config, save_config, AppConfig};
+use crate::sudo_askpass::{askpass_subscription, AskpassEvent};
 use crate::sys_utils::restart_process;
 use crate::system_battery::read_system_battery;
 use crate::system_info::{fetch_system_info, GamingSystemInfo};
@@ -52,8 +55,9 @@ use crate::ui_components::{get_battery_visuals, render_clock, render_gamepad_inf
 use crate::ui_main_view::{
     get_category_dimensions, render_controls_hint, render_section_row, render_status,
 };
-use crate::ui_state::{AppUpdatePhase, AppUpdateState, ModalState};
+use crate::ui_state::{AppUpdatePhase, AppUpdateState, AuthState, ModalState};
 use crate::ui_system_info_modal::render_system_info_modal;
+use crate::virtual_keyboard::{KeyboardMessage, KeyboardOutput, VirtualKeyboard};
 
 pub struct Launcher {
     apps: CategoryList,
@@ -268,6 +272,11 @@ impl Launcher {
             Message::OpenSystemInfo => self.open_system_info(),
             Message::SystemInfoLoaded(info) => self.handle_system_info_loaded(info),
             Message::CloseSystemInfoModal => self.close_modal_none(),
+
+            Message::AskpassEvent(event) => self.handle_askpass_event(event),
+            Message::AuthKeyboard(message) => self.handle_auth_keyboard_message(message),
+            Message::AuthSubmit => self.handle_auth_submit(),
+            Message::AuthCancel => self.handle_auth_cancel(),
 
             // Game Execution Monitoring
             Message::GameExited => self.handle_game_exited(),
@@ -546,7 +555,7 @@ impl Launcher {
     }
 
     fn handle_system_update_progress(&mut self, progress: SystemUpdateProgress) -> Task<Message> {
-        if let ModalState::SystemUpdate(state) = &mut self.modal {
+        if let Some(state) = self.system_update_state_mut() {
             // Prevent updates if the process is already finished (e.g. cancelled/failed)
             // This avoids race conditions where pending stream messages overwrite the cancellation state
             if !state.status.is_finished() {
@@ -567,7 +576,7 @@ impl Launcher {
     }
 
     fn cancel_system_update(&mut self) -> Task<Message> {
-        if let ModalState::SystemUpdate(state) = &mut self.modal {
+        if let Some(state) = self.system_update_state_mut() {
             // Only allow cancelling if not installing
             if !matches!(state.status, UpdateStatus::Installing { .. }) {
                 state.status = UpdateStatus::Failed("Update cancelled by user".to_string());
@@ -603,6 +612,121 @@ impl Launcher {
     fn handle_system_info_loaded(&mut self, info_box: Box<GamingSystemInfo>) -> Task<Message> {
         if let ModalState::SystemInfo(state) = &mut self.modal {
             **state = Some(*info_box);
+        }
+        Task::none()
+    }
+
+    fn handle_askpass_event(&mut self, event: AskpassEvent) -> Task<Message> {
+        match event {
+            AskpassEvent::PasswordRequest { prompt, responder } => {
+                let responder = match responder.lock() {
+                    Ok(mut guard) => guard.take(),
+                    Err(_) => None,
+                };
+                let Some(responder) = responder else {
+                    return Task::none();
+                };
+
+                let mut previous_modal = std::mem::replace(&mut self.modal, ModalState::None);
+                Self::cancel_auth_modal(&mut previous_modal);
+
+                let flow = AuthFlow::new(
+                    prompt,
+                    "Authentication required to continue.".to_string(),
+                    responder,
+                );
+                let keyboard = VirtualKeyboard::new(String::new())
+                    .with_max_length(128)
+                    .password();
+                let auth_state = AuthState { flow, keyboard };
+                self.modal = match previous_modal {
+                    ModalState::SystemUpdate(update)
+                    | ModalState::SystemUpdateAuth { update, .. } => ModalState::SystemUpdateAuth {
+                        update,
+                        auth: auth_state,
+                    },
+                    _ => ModalState::Auth(auth_state),
+                };
+                Task::none()
+            }
+        }
+    }
+
+    fn handle_auth_keyboard_message(&mut self, message: KeyboardMessage) -> Task<Message> {
+        let output = match self.auth_state_mut() {
+            Some(state) => state.keyboard.handle_message(message),
+            None => return Task::none(),
+        };
+
+        self.handle_auth_keyboard_output(output)
+    }
+
+    fn handle_auth_keyboard_output(&mut self, output: KeyboardOutput) -> Task<Message> {
+        enum OutputAction {
+            Submit,
+        }
+
+        let action = {
+            let state = match self.auth_state_mut() {
+                Some(state) => state,
+                None => return Task::none(),
+            };
+
+            match output {
+                KeyboardOutput::Input(value) => {
+                    state.flow.set_password(value);
+                    None
+                }
+                KeyboardOutput::Submit => Some(OutputAction::Submit),
+                KeyboardOutput::None => None,
+            }
+        };
+
+        match action {
+            Some(OutputAction::Submit) => self.handle_auth_submit(),
+            None => Task::none(),
+        }
+    }
+
+    fn handle_auth_submit(&mut self) -> Task<Message> {
+        let previous_modal = std::mem::replace(&mut self.modal, ModalState::None);
+        match previous_modal {
+            ModalState::Auth(mut state) => {
+                if !Self::submit_auth_state(&mut state) {
+                    self.modal = ModalState::Auth(state);
+                    return Task::none();
+                }
+                self.modal = ModalState::None;
+            }
+            ModalState::SystemUpdateAuth { update, mut auth } => {
+                if !Self::submit_auth_state(&mut auth) {
+                    self.modal = ModalState::SystemUpdateAuth { update, auth };
+                    return Task::none();
+                }
+                self.modal = ModalState::SystemUpdate(update);
+            }
+            other => {
+                self.modal = other;
+            }
+        }
+
+        Task::none()
+    }
+
+    fn handle_auth_cancel(&mut self) -> Task<Message> {
+        let previous_modal = std::mem::replace(&mut self.modal, ModalState::None);
+        match previous_modal {
+            ModalState::Auth(mut state) => {
+                state.flow.cancel();
+                self.modal = ModalState::None;
+            }
+            ModalState::SystemUpdateAuth { update, mut auth } => {
+                auth.flow.cancel();
+                self.modal = ModalState::SystemUpdate(update);
+            }
+            other => {
+                self.modal = other;
+            }
         }
         Task::none()
     }
@@ -756,6 +880,51 @@ impl Launcher {
         }
     }
 
+    fn system_update_state(&self) -> Option<&SystemUpdateState> {
+        match &self.modal {
+            ModalState::SystemUpdate(state) => Some(state),
+            ModalState::SystemUpdateAuth { update, .. } => Some(update),
+            _ => None,
+        }
+    }
+
+    fn system_update_state_mut(&mut self) -> Option<&mut SystemUpdateState> {
+        match &mut self.modal {
+            ModalState::SystemUpdate(state) => Some(state),
+            ModalState::SystemUpdateAuth { update, .. } => Some(update),
+            _ => None,
+        }
+    }
+
+    fn auth_state_mut(&mut self) -> Option<&mut AuthState> {
+        match &mut self.modal {
+            ModalState::Auth(state) => Some(state),
+            ModalState::SystemUpdateAuth { auth, .. } => Some(auth),
+            _ => None,
+        }
+    }
+
+    fn cancel_auth_modal(modal: &mut ModalState) {
+        match modal {
+            ModalState::Auth(state) => state.flow.cancel(),
+            ModalState::SystemUpdateAuth { auth, .. } => auth.flow.cancel(),
+            _ => {}
+        }
+    }
+
+    fn submit_auth_state(auth: &mut AuthState) -> bool {
+        if !matches!(auth.flow.state, AuthFlowState::AwaitingPassword { .. }) {
+            return false;
+        }
+
+        let value = auth.keyboard.value().to_string();
+        auth.flow.set_password(value);
+        auth.flow.submit();
+        auth.flow.state = AuthFlowState::Success;
+        auth.keyboard.set_value(String::new());
+        true
+    }
+
     pub fn view(&self) -> Element<'_, Message> {
         let content = self.render_category();
 
@@ -881,6 +1050,12 @@ impl Launcher {
             ModalState::SystemUpdate(state) => Some(render_system_update_modal(state, scale)),
             ModalState::AppUpdate(state) => Some(render_app_update_modal(state, scale)),
             ModalState::SystemInfo(info) => Some(render_system_info_modal(info, scale)),
+            ModalState::SystemUpdateAuth { auth, .. } => {
+                Some(render_auth_dialog(&auth.flow, &auth.keyboard, scale))
+            }
+            ModalState::Auth(state) => {
+                Some(render_auth_dialog(&state.flow, &state.keyboard, scale))
+            }
             ModalState::AppNotFound {
                 item_name,
                 selected_index,
@@ -921,15 +1096,16 @@ impl Launcher {
         });
 
         let keyboard = self.build_keyboard_subscription();
+        let askpass = askpass_subscription().map(Message::AskpassEvent);
 
-        let mut subscriptions = vec![gamepad, keyboard, window_events];
+        let mut subscriptions = vec![gamepad, keyboard, window_events, askpass];
 
         // Clock subscription (every 1 second)
         subscriptions
             .push(iced::time::every(Duration::from_secs(1)).map(|_| Message::Tick(Local::now())));
 
         // System update subscriptions (stream + spinner)
-        if let ModalState::SystemUpdate(state) = &self.modal {
+        if let Some(state) = self.system_update_state() {
             if state.status.is_running() {
                 subscriptions.push(
                     Subscription::run(system_update_stream).map(Message::SystemUpdateProgress),
@@ -987,11 +1163,13 @@ impl Launcher {
             ModalState::ContextMenu { .. } => Some(self.handle_context_menu_navigation(action)),
             ModalState::AppPicker(_) => Some(self.handle_app_picker_navigation(action)),
             ModalState::SystemUpdate(_) => Some(self.handle_system_update_navigation(action)),
+            ModalState::SystemUpdateAuth { .. } => Some(self.handle_auth_navigation(action)),
             ModalState::AppUpdate(state) => {
                 handle_app_update_navigation(state, action).map(|message| self.update(message))
             }
             ModalState::SystemInfo(_) => Some(self.handle_system_info_navigation(action)),
             ModalState::AppNotFound { .. } => Some(self.handle_app_not_found_navigation(action)),
+            ModalState::Auth(_) => Some(self.handle_auth_navigation(action)),
             ModalState::None => None,
         }
     }
@@ -1280,6 +1458,67 @@ impl Launcher {
             _ => {}
         }
         Task::none()
+    }
+
+    fn handle_auth_navigation(&mut self, action: Action) -> Task<Message> {
+        enum NavAction {
+            Cancel,
+            Keyboard(KeyboardOutput),
+        }
+
+        let next_action = {
+            let state = match self.auth_state_mut() {
+                Some(state) => state,
+                None => return Task::none(),
+            };
+
+            match &state.flow.state {
+                AuthFlowState::AwaitingPassword { .. } => match action {
+                    Action::Up => {
+                        state.keyboard.move_up();
+                        None
+                    }
+                    Action::Down => {
+                        state.keyboard.move_down();
+                        None
+                    }
+                    Action::Left => {
+                        state.keyboard.move_left();
+                        None
+                    }
+                    Action::Right => {
+                        state.keyboard.move_right();
+                        None
+                    }
+                    Action::Select => Some(NavAction::Keyboard(state.keyboard.select_current())),
+                    Action::Back => {
+                        if state.keyboard.value().is_empty() {
+                            Some(NavAction::Cancel)
+                        } else {
+                            Some(NavAction::Keyboard(state.keyboard.backspace()))
+                        }
+                    }
+                    Action::ShowHelp => Some(NavAction::Cancel),
+                    _ => None,
+                },
+                AuthFlowState::Failed { .. } => match action {
+                    Action::Back | Action::ShowHelp => Some(NavAction::Cancel),
+                    Action::Select => Some(NavAction::Cancel),
+                    _ => None,
+                },
+                AuthFlowState::Verifying => match action {
+                    Action::Back | Action::ShowHelp => Some(NavAction::Cancel),
+                    _ => None,
+                },
+                AuthFlowState::Success => None,
+            }
+        };
+
+        match next_action {
+            Some(NavAction::Cancel) => self.handle_auth_cancel(),
+            Some(NavAction::Keyboard(output)) => self.handle_auth_keyboard_output(output),
+            None => Task::none(),
+        }
     }
 
     fn snap_to_picker_selection(&self) -> Task<Message> {

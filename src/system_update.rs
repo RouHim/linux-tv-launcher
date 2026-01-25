@@ -1,43 +1,33 @@
+use crate::sudo_askpass::{get_askpass_script_path, get_socket_path};
 use crate::system_update_state::{SystemUpdateProgress, UpdateStatus};
 use iced::futures::{SinkExt, Stream};
+use std::collections::HashMap;
 use std::env;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
+type UpdateCommand = (String, Vec<String>, HashMap<String, String>);
+
 pub fn system_update_stream() -> impl Stream<Item = SystemUpdateProgress> {
     iced::stream::channel(
         100,
         |mut output: iced::futures::channel::mpsc::Sender<SystemUpdateProgress>| async move {
+            tracing::info!("System update stream started");
             send_status(&mut output, UpdateStatus::Starting).await;
 
-            if !command_exists("pkexec") {
-                send_failed(
-                    &mut output,
-                    "pkexec is required for system updates".to_string(),
-                )
-                .await;
-                return;
-            }
-
-            let Some((program, args, use_pkexec)) = get_update_command() else {
-                send_failed(
-                    &mut output,
-                    "No supported package manager found".to_string(),
-                )
-                .await;
-                return;
+            let (program, args, env_vars) = match get_update_command() {
+                Ok(command) => command,
+                Err(message) => {
+                    send_failed(&mut output, message).await;
+                    return;
+                }
             };
 
-            let mut cmd = if use_pkexec {
-                let mut c = Command::new("pkexec");
-                c.arg(program).args(&args);
-                c
-            } else {
-                let mut c = Command::new(program);
-                c.args(&args);
-                c
-            };
+            tracing::info!(program = %program, args = ?args, "Spawning update command");
+            let mut cmd = Command::new(&program);
+            cmd.args(&args);
+            cmd.envs(env_vars);
 
             cmd.stdout(Stdio::piped());
             cmd.stderr(Stdio::piped());
@@ -369,11 +359,29 @@ fn check_restart_required(packages: &[String]) -> bool {
     })
 }
 
-fn get_update_command() -> Option<(&'static str, Vec<&'static str>, bool)> {
+fn get_update_command() -> Result<UpdateCommand, String> {
+    if !command_exists("sudo") {
+        return Err("sudo is required for system updates".to_string());
+    }
+
+    let askpass_path = get_askpass_script_path()
+        .map_err(|err| format!("Failed to write askpass helper: {}", err))?;
+    let socket_path = get_socket_path();
+
+    let mut env_vars = HashMap::new();
+    env_vars.insert(
+        "SUDO_ASKPASS".to_string(),
+        askpass_path.to_string_lossy().to_string(),
+    );
+    env_vars.insert(
+        "RHINCO_TV_ASKPASS_SOCKET".to_string(),
+        socket_path.to_string_lossy().to_string(),
+    );
+
     if let Some(helper) = detect_aur_helper() {
         if helper == "yay" {
-            Some((
-                "yay",
+            Ok((
+                "yay".to_string(),
                 vec![
                     "-Syu",
                     "--noconfirm",
@@ -382,22 +390,44 @@ fn get_update_command() -> Option<(&'static str, Vec<&'static str>, bool)> {
                     "--answeredit=None",
                     "--answerupgrade=None",
                     "--sudo",
-                    "pkexec",
-                ],
-                false, // Run as user, yay handles elevation via --sudo pkexec
+                    "sudo",
+                    "--sudoflags",
+                    "-A",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+                env_vars,
             ))
         } else {
-            // par
-            Some((
-                "paru",
-                vec!["-Syu", "--noconfirm", "--skipreview", "--sudo", "pkexec"],
-                false, // Run as user, paru handles elevation
+            Ok((
+                "paru".to_string(),
+                vec![
+                    "-Syu",
+                    "--noconfirm",
+                    "--skipreview",
+                    "--sudo",
+                    "sudo",
+                    "--sudoflags",
+                    "-A",
+                ]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+                env_vars,
             ))
         }
     } else if command_exists("pacman") {
-        Some(("pacman", vec!["-Syu", "--noconfirm"], true)) // Needs pkexec wrapper
+        Ok((
+            "sudo".to_string(),
+            vec!["-A", "pacman", "-Syu", "--noconfirm"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+            env_vars,
+        ))
     } else {
-        None
+        Err("No supported package manager found".to_string())
     }
 }
 
@@ -410,11 +440,7 @@ fn detect_aur_helper() -> Option<&'static str> {
 /// Returns true if system updates are supported on this system.
 /// Checks for supported package managers and required helpers.
 pub fn is_update_supported() -> bool {
-    if get_update_command().is_none() {
-        return false;
-    }
-
-    command_exists("pkexec")
+    get_update_command().is_ok()
 }
 
 fn command_exists(command: &str) -> bool {

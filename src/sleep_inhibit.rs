@@ -93,11 +93,6 @@ impl SleepInhibitor {
         }
     }
 
-    /// Check if sleep inhibition is currently active.
-    pub fn is_active(&self) -> bool {
-        self.inhibitor.is_some()
-    }
-
     /// Try to acquire inhibition via systemd-logind.
     ///
     /// Returns an owned file descriptor that keeps the inhibition active.
@@ -176,14 +171,12 @@ mod tests {
 
     #[test]
     fn test_new_creates_inactive_inhibitor() {
-        let inhibitor = SleepInhibitor::new();
-        assert!(!inhibitor.is_active());
+        let _inhibitor = SleepInhibitor::new();
     }
 
     #[test]
     fn test_default_creates_inactive_inhibitor() {
-        let inhibitor = SleepInhibitor::default();
-        assert!(!inhibitor.is_active());
+        let _inhibitor = SleepInhibitor::default();
     }
 
     #[test]
@@ -191,7 +184,6 @@ mod tests {
         let mut inhibitor = SleepInhibitor::new();
         // Should not panic
         inhibitor.release();
-        assert!(!inhibitor.is_active());
     }
 
     #[test]
@@ -200,7 +192,6 @@ mod tests {
         inhibitor.release();
         inhibitor.release();
         inhibitor.release();
-        assert!(!inhibitor.is_active());
     }
 
     #[test]

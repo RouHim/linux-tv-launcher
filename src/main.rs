@@ -1,4 +1,6 @@
 mod assets;
+mod auth_dialog;
+mod auth_flow;
 mod category_list;
 mod desktop_apps;
 mod focus_manager;
@@ -17,6 +19,7 @@ mod searxng;
 mod sleep_inhibit;
 mod steamgriddb;
 mod storage;
+mod sudo_askpass;
 mod sys_utils;
 mod system_battery;
 mod system_info;
@@ -34,9 +37,15 @@ mod ui_system_info_modal;
 mod ui_system_update_modal;
 mod ui_theme;
 mod updater;
+mod virtual_keyboard;
 
 fn main() -> iced::Result {
-    tracing_subscriber::fmt::init();
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        tracing_subscriber::EnvFilter::new(
+            "info,wgpu=warn,winit=warn,naga=warn,iced_wgpu=warn,iced_winit=warn",
+        )
+    });
+    tracing_subscriber::fmt().with_env_filter(filter).init();
     let mut settings = iced::Settings::default();
     if let Some(sansation) = assets::get_sansation_font() {
         settings.fonts.push(sansation.into());

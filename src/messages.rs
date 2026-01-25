@@ -8,9 +8,11 @@ use crate::gamepad::GamepadInfo;
 use crate::input::Action;
 use crate::model::AppEntry;
 use crate::storage::AppConfig;
+use crate::sudo_askpass::AskpassEvent;
 use crate::system_info::GamingSystemInfo;
 use crate::system_update_state::SystemUpdateProgress;
 use crate::updater::ReleaseInfo;
+use crate::virtual_keyboard::KeyboardMessage;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -50,5 +52,9 @@ pub enum Message {
     SystemBatteryUpdated(Option<gilrs::PowerInfo>),
     Tick(DateTime<Local>),
     AppUpdateSpinnerTick,
+    AskpassEvent(AskpassEvent),
+    AuthKeyboard(KeyboardMessage),
+    AuthSubmit,
+    AuthCancel,
     None,
 }
