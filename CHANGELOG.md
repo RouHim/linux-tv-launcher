@@ -1,3 +1,12 @@
+# [2.3.0](https://github.com/RouHim/rhinco-tv/compare/v2.2.0...v2.3.0) (2026-01-25)
+
+
+### Features
+
+* **auth:** implement in-app sudo authentication ([d546890](https://github.com/RouHim/rhinco-tv/commit/d5468905b687bb4775fa5cbb83d7f91231b9e5be))
+* **system:** implement sleep inhibition manager ([f312280](https://github.com/RouHim/rhinco-tv/commit/f31228075b66246beb8a6bc5537729d9ace7826a))
+* **ui:** integrate sleep inhibition into launcher lifecycle ([258af25](https://github.com/RouHim/rhinco-tv/commit/258af250686b87b8180c690e45f51ef93a028f10))
+
 # [2.2.0](https://github.com/RouHim/rhinco-tv/compare/v2.1.0...v2.2.0) (2026-01-24)
 
 
