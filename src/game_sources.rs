@@ -1,5 +1,5 @@
-use crate::gopher64::scan_gopher64_games;
 use crate::model::AppEntry;
+use crate::mupen64plus::scan_mupen64plus_games;
 use directories::BaseDirs;
 use rayon::prelude::*;
 use serde_json::Value;
@@ -7,20 +7,20 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Scan all game sources (Steam, Heroic) in parallel and return unique entries
+/// Scan all game sources (Steam, Heroic, Mupen64Plus) in parallel and return unique entries
 pub fn scan_games() -> Vec<AppEntry> {
-    // Scan Steam, Heroic, and Gopher64 games concurrently
-    let ((steam_games, heroic_games), gopher64_games) = rayon::join(
+    // Scan Steam, Heroic, and Mupen64Plus games concurrently
+    let ((steam_games, heroic_games), mupen64plus_games) = rayon::join(
         || rayon::join(scan_steam_games, scan_heroic_games),
-        scan_gopher64_games,
+        scan_mupen64plus_games,
     );
 
     // Combine results
     let mut games =
-        Vec::with_capacity(steam_games.len() + heroic_games.len() + gopher64_games.len());
+        Vec::with_capacity(steam_games.len() + heroic_games.len() + mupen64plus_games.len());
     games.extend(steam_games);
     games.extend(heroic_games);
-    games.extend(gopher64_games);
+    games.extend(mupen64plus_games);
 
     // Sort and deduplicate
     games.sort_by(|a, b| a.name.cmp(&b.name).then(a.exec.cmp(&b.exec)));
