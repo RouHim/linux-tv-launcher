@@ -4,29 +4,46 @@ version = "2.4.0"
 edition = "2021"
 
 [dependencies]
+# UI Framework
 iced = { version = "0.14", features = ["tokio", "image", "svg", "canvas"] }
+iced_fonts = { version = "0.3", features = ["fontawesome"] }
+image = { version = "0.25", features = ["png", "jpeg", "webp"] }
+
+# Async Runtime
+rayon = "1.11.0"
 tokio = { version = "1.49", features = ["rt", "rt-multi-thread", "time", "process", "io-util", "macros"] }
+
+# Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-directories = "6.0"
-gilrs = "0.11"
-rust-embed = "8.9"
+
+# Error Handling
 anyhow = "1.0"
 thiserror = "2.0"
-uuid = { version = "1.19", features = ["v4", "serde"] }
-rayon = "1.11.0"
-ureq = { version = "3.1", features = ["json", "rustls"] }
-urlencoding = "2.1"
-zbus = { version = "5.13", features = ["tokio"] }
-zeroize = { version = "1.8", features = ["derive"] }
-image = { version = "0.25", features = ["png", "jpeg", "webp"] }
-procfs = "0.18"
-iced_fonts = { version = "0.3", features = ["fontawesome"] }
-self_update = { version = "0.42.0", features = ["rustls"], default-features = false }
-chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
+
+# Logging
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+
+# System Integration
+directories = "6.0"
+procfs = "0.18"
+zbus = { version = "5.13", features = ["tokio"] }
+
+# Input Handling
+gilrs = "0.11"
+
+# Networking
+ureq = { version = "3.1", features = ["json", "rustls"] }
+urlencoding = "2.1"
+
+# Utilities
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
+rust-embed = "8.9"
+self_update = { version = "0.42.0", features = ["rustls"], default-features = false }
 semver = "1.0.27"
+uuid = { version = "1.19", features = ["v4", "serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
 
 [target.'cfg(target_env = "musl")'.dependencies]
 mimalloc = "0.1.43"
