@@ -1,3 +1,10 @@
+# [2.4.0](https://github.com/RouHim/rhinco-tv/compare/v2.3.0...v2.4.0) (2026-01-26)
+
+
+### Features
+
+* **n64:** replace gopher64 with mupen64plus ([afa90ae](https://github.com/RouHim/rhinco-tv/commit/afa90ae34565d3feab52f193e77a1cd0609935b9))
+
 # [2.3.0](https://github.com/RouHim/rhinco-tv/compare/v2.2.0...v2.3.0) (2026-01-25)
 
 
