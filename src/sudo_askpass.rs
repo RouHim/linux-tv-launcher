@@ -84,7 +84,7 @@ pub struct AskpassServer {
 
 impl AskpassServer {
     pub fn bind() -> io::Result<Self> {
-        let socket_path = get_socket_path();
+        let socket_path = get_socket_path()?;
 
         if let Some(parent) = socket_path.parent() {
             fs::create_dir_all(parent)?;
@@ -154,7 +154,7 @@ pub fn askpass_subscription() -> Subscription<AskpassEvent> {
 }
 
 pub fn get_askpass_script_path() -> io::Result<PathBuf> {
-    let runtime_dir = runtime_dir();
+    let runtime_dir = runtime_dir()?;
     let script_name = format!("rhinco-tv-askpass-{}.sh", uuid::Uuid::new_v4());
     let script_path = runtime_dir.join(script_name);
 
@@ -165,21 +165,24 @@ pub fn get_askpass_script_path() -> io::Result<PathBuf> {
     Ok(script_path)
 }
 
-pub fn get_socket_path() -> PathBuf {
+pub fn get_socket_path() -> io::Result<PathBuf> {
     if let Some(path) = std::env::var_os(SOCKET_ENV_VAR) {
-        return PathBuf::from(path);
+        return Ok(PathBuf::from(path));
     }
 
-    runtime_dir().join(SOCKET_FILENAME)
+    Ok(runtime_dir()?.join(SOCKET_FILENAME))
 }
 
-fn runtime_dir() -> PathBuf {
+fn runtime_dir() -> io::Result<PathBuf> {
     if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
-        return PathBuf::from(dir);
+        return Ok(PathBuf::from(dir));
     }
 
-    let uid = unsafe { libc::getuid() };
-    PathBuf::from(format!("/run/user/{}", uid))
+    let uid = procfs::process::Process::myself()
+        .and_then(|p| p.status())
+        .map_err(io::Error::other)?
+        .ruid;
+    Ok(PathBuf::from(format!("/run/user/{}", uid)))
 }
 
 fn write_script(path: &Path) -> io::Result<()> {

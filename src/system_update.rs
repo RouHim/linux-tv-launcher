@@ -366,7 +366,8 @@ fn get_update_command() -> Result<UpdateCommand, String> {
 
     let askpass_path = get_askpass_script_path()
         .map_err(|err| format!("Failed to write askpass helper: {}", err))?;
-    let socket_path = get_socket_path();
+    let socket_path =
+        get_socket_path().map_err(|err| format!("Failed to get socket path: {}", err))?;
 
     let mut env_vars = HashMap::new();
     env_vars.insert(
