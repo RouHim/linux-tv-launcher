@@ -75,6 +75,10 @@ This is a Rust application built with Iced for the UI. Key paths:
 
 ## Testing Strategy
 
+### General constraints
+
+- Ensure tests are able to run in a CI environment
+
 ### Test-Driven Development (TDD)
 
 - Prefer write tests before writing the functionality.

@@ -21,6 +21,7 @@
 
 - **Game discovery** from Steam libraries and Heroic (Epic, GOG, Amazon, sideloaded).
 - **App picker** for XDG `.desktop` apps (including Flatpak and Snap exports).
+- **N64 support** via mupen64plus: install `mupen64plus-qt`, then set your ROM directory in **Settings → Paths** so RhincoTV can scan it.
 - **Cover art pipeline** with Heroic art, SteamGridDB (optional API key), and SearXNG fallback.
 - **Gamepad-first navigation** with keyboard shortcuts, haptics, and battery indicators.
 - **System category** for updates, system info, suspend/shutdown, and exiting the launcher.
@@ -62,6 +63,7 @@ chmod +x rhinco-tv-x86_64-unknown-linux-gnu
 
 - **Steam games** require the `steam` client in your `PATH`.
 - **Heroic games** launch via the `heroic://` protocol.
+- **N64 games** require `mupen64plus` and `mupen64plus-qt`; configure your ROM directory in **Settings → Paths** inside mupen64plus-qt.
 - **System updates** currently support Arch-based tools: `pacman`, `yay`, or `paru` (with `pkexec`).
 - **System info** uses common utilities such as `lspci`, `glxinfo`, `vulkaninfo`, and `gamemoded` when available.
 - **On-screen keyboard** support is detected automatically (GNOME, KDE, wvkbd, Squeekboard).
