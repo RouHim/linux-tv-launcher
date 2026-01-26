@@ -3914,7 +3914,6 @@ dependencies = [
  "iced",
  "iced_fonts",
  "image",
- "libc",
  "mimalloc",
  "procfs",
  "rayon",
@@ -3931,7 +3930,6 @@ dependencies = [
  "urlencoding",
  "uuid",
  "zbus",
- "zbus_polkit",
  "zeroize",
 ]
 
@@ -6258,19 +6256,6 @@ dependencies = [
  "serde",
  "winnow",
  "zvariant",
-]
-
-[[package]]
-name = "zbus_polkit"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad23d5c4d198c7e2641b33e6e0d1f866f117408ba66fe80bbe52e289eeb77c52"
-dependencies = [
- "enumflags2",
- "serde",
- "serde_repr",
- "static_assertions",
- "zbus",
 ]
 
 [[package]]

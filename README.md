@@ -22,6 +22,7 @@
 - **Game discovery** from Steam libraries and Heroic (Epic, GOG, Amazon, sideloaded).
 - **App picker** for XDG `.desktop` apps (including Flatpak and Snap exports).
 - **N64 support** via mupen64plus: install `mupen64plus-qt`, then set your ROM directory in **Settings → Paths** so RhincoTV can scan it.
+- **SNES support** via snes9x: install `snes9x`, configure your ROM directory within snes9x, then RhincoTV will read it from `~/.config/snes9x/snes9x.conf` or `~/.snes9x/snes9x.conf` (looks for `LastDirectory` in `[Files]` section)
 - **Cover art pipeline** with Heroic art, SteamGridDB (optional API key), and SearXNG fallback.
 - **Gamepad-first navigation** with keyboard shortcuts, haptics, and battery indicators.
 - **System category** for updates, system info, suspend/shutdown, and exiting the launcher.
@@ -64,6 +65,7 @@ chmod +x rhinco-tv-x86_64-unknown-linux-gnu
 - **Steam games** require the `steam` client in your `PATH`.
 - **Heroic games** launch via the `heroic://` protocol.
 - **N64 games** require `mupen64plus` and `mupen64plus-qt`; configure your ROM directory in **Settings → Paths** inside mupen64plus-qt.
+- **SNES games** require `snes9x`; RhincoTV automatically reads your ROM directory from snes9x's config file (`~/.config/snes9x/snes9x.conf` or `~/.snes9x/snes9x.conf`). Configure your ROM directory in snes9x preferences - the `LastDirectory` value in the `[Files]` section will be used. Supported ROM formats: `.sfc`, `.smc`, `.fig`, `.swc`, `.bs`, `.st`
 - **System updates** currently support Arch-based tools: `pacman`, `yay`, or `paru` (with `pkexec`).
 - **System info** uses common utilities such as `lspci`, `glxinfo`, `vulkaninfo`, and `gamemoded` when available.
 - **On-screen keyboard** support is detected automatically (GNOME, KDE, wvkbd, Squeekboard).
@@ -72,7 +74,7 @@ chmod +x rhinco-tv-x86_64-unknown-linux-gnu
 
 ### Categories
 
-- **Games**: automatically scanned from Steam and Heroic.
+- **Games**: automatically scanned from Steam, Heroic, N64 (mupen64plus), and SNES (snes9x).
 - **Apps**: curated list of desktop apps you add via the picker.
 - **System**: update, system info, suspend, shutdown, exit.
 

@@ -17,6 +17,7 @@ mod mupen64plus;
 mod osk;
 mod searxng;
 mod sleep_inhibit;
+mod snes9x;
 mod steamgriddb;
 mod storage;
 mod sudo_askpass;

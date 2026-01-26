@@ -1,5 +1,6 @@
 use crate::model::AppEntry;
 use crate::mupen64plus::scan_mupen64plus_games;
+use crate::snes9x::scan_snes9x_games;
 use directories::BaseDirs;
 use rayon::prelude::*;
 use serde_json::Value;
@@ -7,20 +8,22 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Scan all game sources (Steam, Heroic, Mupen64Plus) in parallel and return unique entries
+/// Scan all game sources (Steam, Heroic, Mupen64Plus, SNES9x) in parallel and return unique entries
 pub fn scan_games() -> Vec<AppEntry> {
-    // Scan Steam, Heroic, and Mupen64Plus games concurrently
-    let ((steam_games, heroic_games), mupen64plus_games) = rayon::join(
+    // Scan Steam, Heroic, Mupen64Plus, and SNES9x games concurrently
+    let ((steam_games, heroic_games), (mupen64plus_games, snes9x_games)) = rayon::join(
         || rayon::join(scan_steam_games, scan_heroic_games),
-        scan_mupen64plus_games,
+        || rayon::join(scan_mupen64plus_games, scan_snes9x_games),
     );
 
     // Combine results
-    let mut games =
-        Vec::with_capacity(steam_games.len() + heroic_games.len() + mupen64plus_games.len());
+    let mut games = Vec::with_capacity(
+        steam_games.len() + heroic_games.len() + mupen64plus_games.len() + snes9x_games.len(),
+    );
     games.extend(steam_games);
     games.extend(heroic_games);
     games.extend(mupen64plus_games);
+    games.extend(snes9x_games);
 
     // Sort and deduplicate
     games.sort_by(|a, b| a.name.cmp(&b.name).then(a.exec.cmp(&b.exec)));
