@@ -1,3 +1,10 @@
+# [2.5.0](https://github.com/RouHim/rhinco-tv/compare/v2.4.1...v2.5.0) (2026-01-26)
+
+
+### Features
+
+* **snes9x:** add SNES game scanning support and update game sources ([f7a7cfe](https://github.com/RouHim/rhinco-tv/commit/f7a7cfe4d604e1ec18d4d72b76ca244ed53a6c21))
+
 ## [2.4.1](https://github.com/RouHim/rhinco-tv/compare/v2.4.0...v2.4.1) (2026-01-26)
 
 # [2.4.0](https://github.com/RouHim/rhinco-tv/compare/v2.3.0...v2.4.0) (2026-01-26)
