@@ -1,6 +1,7 @@
 use iced::alignment::Horizontal;
 use iced::widget::{Column, Container, Row, Scrollable, Text};
 use iced::{Color, Element, Length};
+use iced_anim::{spring::Motion, AnimationBuilder};
 
 use crate::messages::Message;
 use crate::model::Category;
@@ -21,35 +22,41 @@ pub fn render_context_menu<'a>(
 
     for (i, item) in menu_items.iter().enumerate() {
         let is_selected = i == selected_index;
-        let text = Text::new(*item)
-            .font(SANSATION)
-            .size(scaled(BASE_FONT_XLARGE, scale))
-            .color(if is_selected {
-                Color::WHITE
-            } else {
-                COLOR_TEXT_MUTED
+        let target_bg = if is_selected {
+            COLOR_ACCENT
+        } else {
+            Color::TRANSPARENT
+        };
+        let target_text = if is_selected {
+            Color::WHITE
+        } else {
+            COLOR_TEXT_MUTED
+        };
+
+        let item_text = item.to_string();
+
+        let animated_item: Element<'a, Message> =
+            AnimationBuilder::new((target_bg, target_text), move |(bg_color, txt_color)| {
+                let text = Text::new(item_text.clone())
+                    .font(SANSATION)
+                    .size(scaled(BASE_FONT_XLARGE, scale))
+                    .color(txt_color)
+                    .align_x(Horizontal::Center);
+
+                Container::new(text)
+                    .padding(scaled(BASE_PADDING_SMALL, scale))
+                    .width(Length::Fill)
+                    .style(move |_| iced::widget::container::Style {
+                        background: Some(bg_color.into()),
+                        text_color: Some(txt_color),
+                        ..Default::default()
+                    })
+                    .into()
             })
-            .align_x(Horizontal::Center);
+            .animation(Motion::SNAPPY)
+            .into();
 
-        let container = Container::new(text)
-            .padding(scaled(BASE_PADDING_SMALL, scale))
-            .width(Length::Fill)
-            .style(move |_| {
-                if is_selected {
-                    iced::widget::container::Style {
-                        background: Some(COLOR_ACCENT.into()),
-                        text_color: Some(Color::WHITE),
-                        ..Default::default()
-                    }
-                } else {
-                    iced::widget::container::Style {
-                        text_color: Some(COLOR_TEXT_MUTED),
-                        ..Default::default()
-                    }
-                }
-            });
-
-        column = column.push(container);
+        column = column.push(animated_item);
     }
 
     let border_radius = scaled(10.0, scale);
