@@ -1,3 +1,14 @@
+# [2.6.0](https://github.com/RouHim/rhinco-tv/compare/v2.5.0...v2.6.0) (2026-01-27)
+
+
+### Features
+
+* **ui:** add animated modal overlay fade-in with instant dismiss ([16a48e9](https://github.com/RouHim/rhinco-tv/commit/16a48e9f4d73f035c7c94c1ad9b52a24ecec702d))
+* **ui:** add iced_anim dependency for UI animations ([78b59d6](https://github.com/RouHim/rhinco-tv/commit/78b59d6171d820d45d0af53bd9b0276977a79cf8))
+* **ui:** animate category title color on selection change ([e5b8931](https://github.com/RouHim/rhinco-tv/commit/e5b8931de922705191a131d4feec0682cd3c0413))
+* **ui:** animate context menu selection highlight ([aee753e](https://github.com/RouHim/rhinco-tv/commit/aee753ed5ce4aeda0586c55be667eb3c871b6f93))
+* **ui:** animate item selection border and shadow glow ([c37453d](https://github.com/RouHim/rhinco-tv/commit/c37453d5e2d59725a0ab651d5b0cbd9877a727f3))
+
 # [2.5.0](https://github.com/RouHim/rhinco-tv/compare/v2.4.1...v2.5.0) (2026-01-26)
 
 
