@@ -1803,6 +1803,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iced_anim"
+version = "0.3.1"
+source = "git+https://github.com/bradysimon/iced_anim?rev=90006f9#90006f97fd912c3311db9656375498e0bbeec9ff"
+dependencies = [
+ "iced_core",
+]
+
+[[package]]
 name = "iced_core"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3912,6 +3920,7 @@ dependencies = [
  "directories",
  "gilrs",
  "iced",
+ "iced_anim",
  "iced_fonts",
  "image",
  "mimalloc",

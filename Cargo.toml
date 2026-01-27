@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 # UI Framework
 iced = { version = "0.14", features = ["tokio", "image", "svg", "canvas"] }
+iced_anim = { git = "https://github.com/bradysimon/iced_anim", rev = "90006f9" }
 iced_fonts = { version = "0.3", features = ["fontawesome"] }
 image = { version = "0.25", features = ["png", "jpeg", "webp"] }
 
