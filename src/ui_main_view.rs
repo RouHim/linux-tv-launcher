@@ -155,74 +155,96 @@ fn render_item<'a>(
     let image_width = dims.image_width;
     let image_height = dims.image_height;
     let item_width = dims.item_width;
-    let icon_widget: Element<'a, Message> = if let Some(sys_icon) = &item.system_icon {
-        // Use 60% of the container width for the icon size to ensure it fits comfortably
-        let icon_size = image_width * 0.6;
 
-        let icon = match sys_icon {
-            SystemIcon::PowerOff => icons::power_off_icon(icon_size),
-            SystemIcon::Pause => icons::pause_icon(icon_size),
-            SystemIcon::ArrowsRotate => icons::arrows_rotate_icon(icon_size),
-            SystemIcon::ExitBracket => icons::exit_icon(icon_size),
-            SystemIcon::Info => icons::info_icon(icon_size),
-        };
-
-        Container::new(icon)
-            .width(Length::Fixed(image_width))
-            .height(Length::Fixed(image_height))
-            .align_x(Horizontal::Center)
-            .align_y(iced::alignment::Vertical::Center)
-            .into()
+    let target = if is_selected {
+        (1.0f32, 10.0f32)
     } else {
-        render_icon(
-            item.icon.as_ref().map(PathBuf::from),
-            image_width,
-            image_height,
-            "ICON",
-            None,
-            default_icon_handle,
-        )
+        (0.0f32, 0.0f32)
     };
 
-    let icon_container = Container::new(icon_widget).padding(6.0 * scale);
+    // Clone data needed inside the Fn closure (called multiple times during animation)
+    let item_name = item.name.clone();
+    let item_system_icon = item.system_icon;
+    let item_icon = item.icon.clone();
+    let default_icon = default_icon_handle.clone();
 
-    let text = Text::new(item.name.clone());
+    AnimationBuilder::new(target, move |(border_alpha, shadow_blur)| {
+        // Rebuild entire widget tree inside closure — Element is NOT Clone
+        let icon_widget: Element<'_, Message> = if let Some(ref sys_icon) = item_system_icon {
+            let icon_size = image_width * 0.6;
+            let icon = match sys_icon {
+                SystemIcon::PowerOff => icons::power_off_icon(icon_size),
+                SystemIcon::Pause => icons::pause_icon(icon_size),
+                SystemIcon::ArrowsRotate => icons::arrows_rotate_icon(icon_size),
+                SystemIcon::ExitBracket => icons::exit_icon(icon_size),
+                SystemIcon::Info => icons::info_icon(icon_size),
+            };
+            Container::new(icon)
+                .width(Length::Fixed(image_width))
+                .height(Length::Fixed(image_height))
+                .align_x(Horizontal::Center)
+                .align_y(iced::alignment::Vertical::Center)
+                .into()
+        } else {
+            render_icon(
+                item_icon.as_ref().map(PathBuf::from),
+                image_width,
+                image_height,
+                "ICON",
+                None,
+                default_icon.clone(),
+            )
+        };
 
-    let label = text
-        .font(SANSATION)
-        .width(Length::Fixed(item_width)) // Use full item width for text centering
-        .wrapping(text::Wrapping::Word)
-        .align_x(Horizontal::Center)
-        .color(Color::WHITE)
-        .size(14.0 * scale);
+        let icon_container = Container::new(icon_widget).padding(6.0 * scale);
 
-    let content = Column::new()
-        .push(icon_container)
-        .push(label)
-        .align_x(iced::Alignment::Center)
-        .spacing(5.0 * scale);
+        let label = Text::new(item_name.clone())
+            .font(SANSATION)
+            .width(Length::Fixed(item_width))
+            .wrapping(text::Wrapping::Word)
+            .align_x(Horizontal::Center)
+            .color(Color::WHITE)
+            .size(14.0 * scale);
 
-    Container::new(content)
-        .width(Length::Fixed(item_width))
-        .height(Length::Shrink)
-        .padding(6.0 * scale)
-        .align_x(Horizontal::Center)
-        .align_y(iced::alignment::Vertical::Center)
-        .style(move |_theme| {
-            if is_selected {
-                iced::widget::container::Style {
-                    border: iced::Border {
-                        color: COLOR_ACCENT,
-                        width: 1.0 * scale.max(1.0), // Ensure border is at least 1.0
-                        radius: (4.0 * scale).into(),
+        let content = Column::new()
+            .push(icon_container)
+            .push(label)
+            .align_x(iced::Alignment::Center)
+            .spacing(5.0 * scale);
+
+        Container::new(content)
+            .width(Length::Fixed(item_width))
+            .height(Length::Shrink)
+            .padding(6.0 * scale)
+            .align_x(Horizontal::Center)
+            .align_y(iced::alignment::Vertical::Center)
+            .style(move |_theme| iced::widget::container::Style {
+                border: iced::Border {
+                    color: Color {
+                        r: COLOR_ACCENT.r,
+                        g: COLOR_ACCENT.g,
+                        b: COLOR_ACCENT.b,
+                        a: border_alpha,
                     },
-                    ..Default::default()
-                }
-            } else {
-                iced::widget::container::Style::default()
-            }
-        })
-        .into()
+                    width: 1.0 * scale.max(1.0),
+                    radius: (4.0 * scale).into(),
+                },
+                shadow: iced::Shadow {
+                    color: Color {
+                        r: COLOR_ACCENT.r,
+                        g: COLOR_ACCENT.g,
+                        b: COLOR_ACCENT.b,
+                        a: border_alpha * 0.5,
+                    },
+                    offset: iced::Vector::ZERO,
+                    blur_radius: shadow_blur * scale,
+                },
+                ..Default::default()
+            })
+            .into()
+    })
+    .animation(Motion::SNAPPY)
+    .into()
 }
 
 pub fn render_status<'a>(
