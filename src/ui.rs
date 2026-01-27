@@ -825,18 +825,20 @@ impl Launcher {
     /// Sync overlay alpha animation target with current modal state.
     /// Call after EVERY `self.modal = ...` assignment.
     fn sync_overlay_alpha(&mut self) {
+        use crate::ui_theme::{COLOR_OVERLAY, COLOR_OVERLAY_STRONG};
+
         match &self.modal {
             ModalState::None => {
                 // Instant dismiss — no fade-out animation
                 self.overlay_alpha.update(iced_anim::Event::SettleAt(0.0));
             }
             ModalState::ContextMenu { .. } => {
-                // Context menu uses lighter overlay (0.7 alpha)
-                self.overlay_alpha.set_target(0.7);
+                // Context menu uses lighter overlay (COLOR_OVERLAY alpha = 0.7)
+                self.overlay_alpha.set_target(COLOR_OVERLAY.a);
             }
             _ => {
-                // All other modals use stronger overlay (0.85 alpha)
-                self.overlay_alpha.set_target(0.85);
+                // All other modals use stronger overlay (COLOR_OVERLAY_STRONG alpha = 0.85)
+                self.overlay_alpha.set_target(COLOR_OVERLAY_STRONG.a);
             }
         }
     }
@@ -1074,7 +1076,7 @@ impl Launcher {
 
     fn render_with_modal<'a>(&'a self, main_content: Element<'a, Message>) -> Element<'a, Message> {
         use crate::ui_theme::COLOR_ABYSS_DARK;
-        
+
         // Always render animated overlay background
         let overlay_bg = iced_anim::Animation::new(
             &self.overlay_alpha,
@@ -1082,12 +1084,15 @@ impl Launcher {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .style(move |_| iced::widget::container::Style {
-                    background: Some(Color {
-                        r: COLOR_ABYSS_DARK.r,
-                        g: COLOR_ABYSS_DARK.g,
-                        b: COLOR_ABYSS_DARK.b,
-                        a: *self.overlay_alpha.value(),
-                    }.into()),
+                    background: Some(
+                        Color {
+                            r: COLOR_ABYSS_DARK.r,
+                            g: COLOR_ABYSS_DARK.g,
+                            b: COLOR_ABYSS_DARK.b,
+                            a: *self.overlay_alpha.value(),
+                        }
+                        .into(),
+                    ),
                     ..Default::default()
                 }),
         )
