@@ -1805,7 +1805,8 @@ dependencies = [
 [[package]]
 name = "iced_anim"
 version = "0.3.1"
-source = "git+https://github.com/bradysimon/iced_anim?rev=90006f9#90006f97fd912c3311db9656375498e0bbeec9ff"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea7e0f5f848b041abf2907eda96a4c21cbd5c3aee4ade434bd650d898f39e95b"
 dependencies = [
  "iced_core",
 ]
