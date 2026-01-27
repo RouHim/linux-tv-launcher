@@ -172,7 +172,7 @@ pub fn render_app_picker<'a>(
         .center_y(Length::Fill)
         .padding(scaled(MODAL_OVERLAY_PADDING, scale))
         .style(|_| iced::widget::container::Style {
-            background: Some(COLOR_OVERLAY_STRONG.into()),
+            background: Some(Color::TRANSPARENT.into()),
             ..Default::default()
         })
         .into()

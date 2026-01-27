@@ -78,7 +78,7 @@ pub fn render_context_menu<'a>(
         .center_x(Length::Fill)
         .center_y(Length::Fill)
         .style(|_| iced::widget::container::Style {
-            background: Some(COLOR_OVERLAY.into()),
+            background: Some(Color::TRANSPARENT.into()),
             ..Default::default()
         })
         .into()
@@ -220,7 +220,7 @@ pub fn render_help_modal<'a>(scale: f32) -> Element<'a, Message> {
         .center_y(Length::Fill)
         .padding(scaled(MODAL_HELP_PADDING, scale))
         .style(|_| iced::widget::container::Style {
-            background: Some(COLOR_OVERLAY_STRONG.into()),
+            background: Some(Color::TRANSPARENT.into()),
             ..Default::default()
         })
         .into()
@@ -296,7 +296,7 @@ pub fn render_app_not_found_modal<'a>(
         .center_x(Length::Fill)
         .center_y(Length::Fill)
         .style(|_| iced::widget::container::Style {
-            background: Some(COLOR_OVERLAY_STRONG.into()),
+            background: Some(Color::TRANSPARENT.into()),
             ..Default::default()
         })
         .into()

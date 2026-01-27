@@ -56,5 +56,6 @@ pub enum Message {
     AuthKeyboard(KeyboardMessage),
     AuthSubmit,
     AuthCancel,
+    OverlayAlphaUpdate(iced_anim::Event<f32>),
     None,
 }

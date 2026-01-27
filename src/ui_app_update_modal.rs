@@ -143,7 +143,7 @@ pub fn render_app_update_modal<'a>(state: &'a AppUpdateState, scale: f32) -> Ele
         .center_x(Length::Fill)
         .center_y(Length::Fill)
         .style(|_| iced::widget::container::Style {
-            background: Some(COLOR_OVERLAY_STRONG.into()),
+            background: Some(Color::TRANSPARENT.into()),
             ..Default::default()
         })
         .into()

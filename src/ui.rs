@@ -100,6 +100,8 @@ pub struct Launcher {
     pending_update: Option<ReleaseInfo>,
     /// Main vertical scrollable Id for programmatic scroll control
     main_scroll_id: iced::widget::Id,
+    /// Animated overlay alpha for modal fade-in (0.0 = invisible, 0.7/0.85 = visible)
+    overlay_alpha: iced_anim::Animated<f32>,
 }
 
 impl Launcher {
@@ -165,6 +167,7 @@ impl Launcher {
             last_battery_check: std::time::Instant::now(),
             pending_update: None,
             main_scroll_id: iced::widget::Id::unique(),
+            overlay_alpha: iced_anim::Animated::spring(0.0, iced_anim::spring::Motion::SNAPPY),
         };
 
         // Chain startup: Load config first to potentially get API key, then scan games
@@ -286,6 +289,11 @@ impl Launcher {
             }
             Message::SystemBatteryUpdated(info) => {
                 self.system_battery = info;
+                Task::none()
+            }
+
+            Message::OverlayAlphaUpdate(event) => {
+                self.overlay_alpha.update(event);
                 Task::none()
             }
 
@@ -474,6 +482,7 @@ impl Launcher {
 
     fn open_app_picker(&mut self) -> Task<Message> {
         self.modal = ModalState::AppPicker(AppPickerState::new());
+        self.sync_overlay_alpha();
         self.available_apps.clear();
         // Scan for desktop apps asynchronously
         Task::perform(async { scan_desktop_apps() }, Message::AvailableAppsLoaded)
@@ -551,6 +560,7 @@ impl Launcher {
     fn start_system_update(&mut self) -> Task<Message> {
         self.osk_manager.show();
         self.modal = ModalState::SystemUpdate(SystemUpdateState::new());
+        self.sync_overlay_alpha();
         Task::none()
     }
 
@@ -597,6 +607,7 @@ impl Launcher {
 
     fn open_system_info(&mut self) -> Task<Message> {
         self.modal = ModalState::SystemInfo(Box::new(None));
+        self.sync_overlay_alpha();
         Task::perform(
             async { tokio::task::spawn_blocking(fetch_system_info).await.ok() },
             |info| {
@@ -647,6 +658,7 @@ impl Launcher {
                     },
                     _ => ModalState::Auth(auth_state),
                 };
+                self.sync_overlay_alpha();
                 Task::none()
             }
         }
@@ -694,19 +706,24 @@ impl Launcher {
             ModalState::Auth(mut state) => {
                 if !Self::submit_auth_state(&mut state) {
                     self.modal = ModalState::Auth(state);
+                    self.sync_overlay_alpha();
                     return Task::none();
                 }
                 self.modal = ModalState::None;
+                self.sync_overlay_alpha();
             }
             ModalState::SystemUpdateAuth { update, mut auth } => {
                 if !Self::submit_auth_state(&mut auth) {
                     self.modal = ModalState::SystemUpdateAuth { update, auth };
+                    self.sync_overlay_alpha();
                     return Task::none();
                 }
                 self.modal = ModalState::SystemUpdate(update);
+                self.sync_overlay_alpha();
             }
             other => {
                 self.modal = other;
+                self.sync_overlay_alpha();
             }
         }
 
@@ -719,13 +736,16 @@ impl Launcher {
             ModalState::Auth(mut state) => {
                 state.flow.cancel();
                 self.modal = ModalState::None;
+                self.sync_overlay_alpha();
             }
             ModalState::SystemUpdateAuth { update, mut auth } => {
                 auth.flow.cancel();
                 self.modal = ModalState::SystemUpdate(update);
+                self.sync_overlay_alpha();
             }
             other => {
                 self.modal = other;
+                self.sync_overlay_alpha();
             }
         }
         Task::none()
@@ -781,6 +801,7 @@ impl Launcher {
         if matches!(self.modal, ModalState::None) {
             if let Some(release) = self.pending_update.take() {
                 self.modal = ModalState::AppUpdate(AppUpdateState::new(release));
+                self.sync_overlay_alpha();
             }
         }
     }
@@ -790,6 +811,7 @@ impl Launcher {
     /// followed by `self.try_show_pending_update()`.
     fn close_modal(&mut self) {
         self.modal = ModalState::None;
+        self.sync_overlay_alpha();
         self.try_show_pending_update();
     }
 
@@ -798,6 +820,25 @@ impl Launcher {
     fn close_modal_none(&mut self) -> Task<Message> {
         self.close_modal();
         Task::none()
+    }
+
+    /// Sync overlay alpha animation target with current modal state.
+    /// Call after EVERY `self.modal = ...` assignment.
+    fn sync_overlay_alpha(&mut self) {
+        match &self.modal {
+            ModalState::None => {
+                // Instant dismiss — no fade-out animation
+                self.overlay_alpha.update(iced_anim::Event::SettleAt(0.0));
+            }
+            ModalState::ContextMenu { .. } => {
+                // Context menu uses lighter overlay (0.7 alpha)
+                self.overlay_alpha.set_target(0.7);
+            }
+            _ => {
+                // All other modals use stronger overlay (0.85 alpha)
+                self.overlay_alpha.set_target(0.85);
+            }
+        }
     }
 
     fn start_app_update(&mut self) -> Task<Message> {
@@ -847,6 +888,7 @@ impl Launcher {
     fn close_app_update_modal(&mut self) -> Task<Message> {
         if matches!(self.modal, ModalState::AppUpdate(_)) {
             self.modal = ModalState::None;
+            self.sync_overlay_alpha();
         }
         Task::none()
     }
@@ -1031,11 +1073,33 @@ impl Launcher {
     }
 
     fn render_with_modal<'a>(&'a self, main_content: Element<'a, Message>) -> Element<'a, Message> {
-        if let Some(overlay) = self.render_modal_layer() {
-            Stack::new().push(main_content).push(overlay).into()
-        } else {
-            main_content
+        use crate::ui_theme::COLOR_ABYSS_DARK;
+        
+        // Always render animated overlay background
+        let overlay_bg = iced_anim::Animation::new(
+            &self.overlay_alpha,
+            Container::new(iced::widget::Space::new())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| iced::widget::container::Style {
+                    background: Some(Color {
+                        r: COLOR_ABYSS_DARK.r,
+                        g: COLOR_ABYSS_DARK.g,
+                        b: COLOR_ABYSS_DARK.b,
+                        a: *self.overlay_alpha.value(),
+                    }.into()),
+                    ..Default::default()
+                }),
+        )
+        .on_update(Message::OverlayAlphaUpdate);
+
+        let mut stack = Stack::new().push(main_content).push(overlay_bg);
+
+        if let Some(modal_content) = self.render_modal_layer() {
+            stack = stack.push(modal_content);
         }
+
+        stack.into()
     }
 
     fn render_modal_layer(&self) -> Option<Element<'_, Message>> {
@@ -1194,6 +1258,7 @@ impl Launcher {
         match action {
             Action::ShowHelp => {
                 self.modal = ModalState::Help;
+                self.sync_overlay_alpha();
                 return Task::none();
             }
             Action::AddApp if self.category == Category::Apps => {
@@ -1201,6 +1266,7 @@ impl Launcher {
             }
             Action::ContextMenu if !self.current_category_list().is_empty() => {
                 self.modal = ModalState::ContextMenu { index: 0 };
+                self.sync_overlay_alpha();
                 return Task::none();
             }
             Action::Back => {
@@ -1337,6 +1403,7 @@ impl Launcher {
         }
 
         self.modal = ModalState::ContextMenu { index };
+        self.sync_overlay_alpha();
         Task::none()
     }
 
@@ -1345,6 +1412,7 @@ impl Launcher {
         // Index 0 is always "Launch" for all categories
         if index == 0 {
             self.modal = ModalState::None;
+            self.sync_overlay_alpha();
             return self.activate_selected();
         }
 
@@ -1417,6 +1485,7 @@ impl Launcher {
             category,
             selected_index,
         };
+        self.sync_overlay_alpha();
         Task::none()
     }
 
@@ -1672,6 +1741,7 @@ impl Launcher {
                     category: self.category,
                     selected_index: 0,
                 };
+                self.sync_overlay_alpha();
                 Task::none()
             }
             Err(err) => {

@@ -107,7 +107,7 @@ pub fn render_system_info_modal<'a>(
         .center_y(Length::Fill)
         .padding(scaled(MODAL_OVERLAY_PADDING, scale))
         .style(|_| iced::widget::container::Style {
-            background: Some(COLOR_OVERLAY_STRONG.into()),
+            background: Some(Color::TRANSPARENT.into()),
             ..Default::default()
         })
         .into()
