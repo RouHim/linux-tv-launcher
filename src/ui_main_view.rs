@@ -1,6 +1,7 @@
 use iced::alignment::Horizontal;
 use iced::widget::{scrollable, text, Column, Container, Row, Scrollable, Text};
 use iced::{Background, Border, Color, Element, Length, Shadow};
+use iced_anim::{spring::Motion, AnimationBuilder};
 use std::path::PathBuf;
 
 use crate::category_list::CategoryList;
@@ -35,14 +36,20 @@ pub fn render_section_row<'a>(
     let is_active = active_category == target_category;
     let selected_index = if is_active { list.selected_index } else { 0 };
 
-    let title = Text::new(target_category.title())
-        .font(SANSATION)
-        .size(24.0 * scale)
-        .color(if is_active {
-            Color::WHITE
-        } else {
-            COLOR_TEXT_DIM
-        });
+    let target_color = if is_active {
+        Color::WHITE
+    } else {
+        COLOR_TEXT_DIM
+    };
+    let title: Element<'a, Message> = AnimationBuilder::new(target_color, move |color| {
+        Text::new(target_category.title())
+            .font(SANSATION)
+            .size(24.0 * scale)
+            .color(color)
+            .into()
+    })
+    .animation(Motion::SNAPPY)
+    .into();
 
     let (item_width, item_height, image_width, image_height) =
         get_category_dimensions(target_category, scale);
