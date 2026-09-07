@@ -42,7 +42,7 @@ urlencoding = "2.1"
 # Utilities
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
 rust-embed = "8.9"
-self_update = { version = "0.42.0", features = ["rustls"], default-features = false }
+self_update = { version = "0.44.0", features = ["rustls"], default-features = false }
 semver = "1.0.27"
 strsim = "0.11"
 uuid = { version = "1.19", features = ["v4", "serde"] }
